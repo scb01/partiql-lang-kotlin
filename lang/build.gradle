@@ -1,3 +1,8 @@
+
+import org.partiql.pig.cmdline.Command
+import org.partiql.pig.cmdline.TargetLanguage
+import org.partiql.pig.errors.PigException
+
 /*
  * Copyright 2019 Amazon.com, Inc. or its affiliates.  All rights reserved.
  *
@@ -21,7 +26,6 @@ plugins {
     id 'maven-publish'
     id 'org.jetbrains.dokka' version '0.9.18'
     id 'org.jetbrains.kotlin.jvm'
-    id 'io.gitlab.arturbosch.detekt'
     id 'signing'
 }
 
@@ -38,18 +42,47 @@ dependencies {
     // 'api' below to 'implementation' to effect this.
     implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk8'
 
-
     api 'com.amazon.ion:ion-java:[1.4.0,)'
+    api 'com.amazon.ion:ion-element:0.2.0'
+    api 'org.partiql:partiql-ir-generator-runtime:0.3.2'
 
     // test-time dependencies
-    testImplementation 'org.jetbrains.kotlin:kotlin-reflect'
-    testImplementation 'org.jetbrains.kotlin:kotlin-test'
+    testImplementation 'org.jetbrains.kotlin:kotlin-test-junit5'
     testImplementation 'pl.pragmatists:JUnitParams:[1.0.0,1.1.0)'
     testImplementation 'org.assertj:assertj-core:[3.11.0,3.12.0)'
-    
-    // PTS
-    testImplementation project(':testscript')
+
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.7.0'
+    testImplementation 'org.junit.vintage:junit-vintage-engine:5.7.0'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.7.0'
 }
+
+task generatePigDomains {
+    group = "code generation"
+
+    // TODO: in the future, utilize the API created as part of this ticket:
+    // https://github.com/partiql/partiql-ir-generator/issues/5
+
+    def typeUniverse = new File(projectDir, "resources/org/partiql/type-domains/partiql.ion")
+    def outputFile = new File(projectDir, "src/org/partiql/lang/domains/partiql-domains.kt")
+    def targetLanguage = new TargetLanguage.Kotlin("org.partiql.lang.domains")
+    def cmd = new Command.Generate(typeUniverse, outputFile, targetLanguage)
+
+    // TODO:
+    // Tell gradle about the input and output of this task so that it only invokes pig when
+    // the input file has changed or the output file is missing.
+
+    doLast {
+        try {
+            org.partiql.pig.MainKt.generateCode(cmd)
+        } catch(PigException e) {
+            System.err.println("Failed to generate PIG domains: ${e.error}")
+            throw new TaskExecutionException(generatePigDomains, e)
+        }
+    }
+}
+
+compileKotlin.dependsOn generatePigDomains
+
 
 dokka {
     outputFormat = "html"

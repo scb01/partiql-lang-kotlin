@@ -19,6 +19,7 @@ import org.partiql.lang.ast.*
 import org.partiql.lang.syntax.*
 import junitparams.*
 import org.junit.*
+import org.junit.Test
 import org.junit.runner.*
 import kotlin.test.*
 
@@ -156,10 +157,17 @@ class AstWalkerTests {
             "PIVOT 1 AT 2 FROM 3",
             "Select|SelectProjectionPivot|Literal|Literal|FromSourceExpr|Literal|"),
         WalkerTestCase(
+            "CREATE TABLE FOO",
+            "CreateTable|"),
+        WalkerTestCase(
             "?",
             "Parameter|"),
 
-        WalkerTestCase("MISSING", "LiteralMissing|")
+        WalkerTestCase("MISSING", "LiteralMissing|"),
+
+        WalkerTestCase("SELECT a FROM tb WHERE hk = 1 ORDER BY rk DESC", "Select|SelectProjectionList|SelectListItemExpr|VariableReference|FromSourceExpr|VariableReference|NAry|VariableReference|Literal|VariableReference|"),
+        WalkerTestCase("INSERT INTO foo VALUE 1 ON CONFLICT WHERE bar DO NOTHING", "DataManipulation|VariableReference|Literal|VariableReference|")
+
     )
 
 }

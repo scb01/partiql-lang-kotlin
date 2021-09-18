@@ -72,6 +72,7 @@ enum class Property(val propertyName: String, val propertyType: PropertyType) {
     LIKE_PATTERN("pattern", STRING_CLASS),
     LIKE_ESCAPE("escape_char", STRING_CLASS),
     FUNCTION_NAME("function_name", STRING_CLASS),
+    PROCEDURE_NAME("procedure_name", STRING_CLASS),
     EXPECTED_ARGUMENT_TYPES("expected_types", STRING_CLASS),
     ACTUAL_ARGUMENT_TYPES("actual_types", STRING_CLASS),
     FEATURE_NAME("FEATURE_NAME", STRING_CLASS),
@@ -90,15 +91,22 @@ abstract class PropertyValue(val type: PropertyType) {
     open fun integerValue(): Int = throw IllegalArgumentException("Property value is of type $type and not Integer")
     open fun ionValue(): IonValue = throw IllegalArgumentException("Property value is of type $type and not IonValue")
 
-    override fun toString() : String =
-        when(type) {
-            PropertyType.LONG_CLASS      -> longValue().toString()
-            PropertyType.STRING_CLASS    -> stringValue()
-            PropertyType.INTEGER_CLASS   -> integerValue().toString()
-            PropertyType.TOKEN_CLASS     -> tokenTypeValue().toString()
-            PropertyType.ION_VALUE_CLASS -> ionValue().toPrettyString()
+    val value: Any
+        get() = when (type) {
+            LONG_CLASS      -> longValue()
+            STRING_CLASS    -> stringValue()
+            INTEGER_CLASS   -> integerValue()
+            TOKEN_CLASS     -> tokenTypeValue()
+            ION_VALUE_CLASS -> ionValue()
         }
-    }
+
+    override fun toString(): String =
+        when (type) {
+            ION_VALUE_CLASS -> (value as IonValue).toPrettyString()
+            else -> value.toString()
+        }
+}
+
 
 
 /**

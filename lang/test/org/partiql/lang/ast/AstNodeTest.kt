@@ -137,16 +137,22 @@ class AstNodeTest {
             "Select|SelectProjectionPivot|Literal|Literal|FromSourceExpr|Literal"),
         IteratorTestCase(
             "INSERT INTO foo VALUES (1)",
-            "DataManipulation|VariableReference|Seq|Seq|Literal|InsertOp|VariableReference|Seq|Seq|Literal"),
+            "DataManipulation|InsertOp|VariableReference|Seq|Seq|Literal|DmlOpList|InsertOp|VariableReference|Seq|Seq|Literal"),
         IteratorTestCase(
             "UPDATE foo SET x.y = bar WHERE n",
-            "DataManipulation|Assignment|Path|VariableReference|PathComponentExpr|Literal|VariableReference|FromSourceExpr|VariableReference|VariableReference|AssignmentOp|Assignment|Path|VariableReference|PathComponentExpr|Literal|VariableReference"),
+            "DataManipulation|AssignmentOp|Assignment|Path|VariableReference|PathComponentExpr|Literal|VariableReference|FromSourceExpr|VariableReference|VariableReference|DmlOpList|AssignmentOp|Assignment|Path|VariableReference|PathComponentExpr|Literal|VariableReference"),
         IteratorTestCase(
             "FROM x IN Y REMOVE p",
-            "DataManipulation|VariableReference|FromSourceExpr|NAry|VariableReference|VariableReference|RemoveOp|VariableReference"),
+            "DataManipulation|RemoveOp|VariableReference|FromSourceExpr|NAry|VariableReference|VariableReference|DmlOpList|RemoveOp|VariableReference"),
         IteratorTestCase(
             "DELETE FROM foo WHERE bar",
-            "DataManipulation|FromSourceExpr|VariableReference|VariableReference|DeleteOp"),
+            "DataManipulation|DeleteOp|FromSourceExpr|VariableReference|VariableReference|DmlOpList|DeleteOp"),
+        IteratorTestCase(
+            "CREATE TABLE foo",
+            "CreateTable"),
+        IteratorTestCase(
+            "DROP TABLE foo",
+            "DropTable"),
 
         IteratorTestCase("MISSING", "LiteralMissing"))
 
@@ -269,20 +275,22 @@ class AstNodeTest {
         val from = FromSourceExpr(literal("2"), LetVariables())
 
         assertEquals(listOf(projection, from),
-                     Select(SetQuantifier.ALL, projection, from, null, null, null, null, emptyMeta).children)
+                     Select(SetQuantifier.ALL, projection, from, null, null, null, null, null, null, emptyMeta).children)
     }
 
     @Test
     fun selectWithAllChildren() {
         val projection = SelectProjectionValue(literal("1"))
         val from = FromSourceExpr(literal("2"), LetVariables())
+        val fromLet = LetSource(emptyList())
         val where = literal("3")
         val groupBy = GroupBy(GroupingStrategy.FULL, listOf())
         val having = literal("4")
+        val orderBy = OrderBy(listOf())
         val limit = literal("5")
 
-        assertEquals(listOf(projection, from, where, groupBy, having, limit),
-                     Select(SetQuantifier.ALL, projection, from, where, groupBy, having, limit, emptyMeta).children)
+        assertEquals(listOf(projection, from, fromLet, where, groupBy, having, orderBy, limit),
+                     Select(SetQuantifier.ALL, projection, from, fromLet, where, groupBy, having, orderBy, limit, emptyMeta).children)
     }
 
     @Test

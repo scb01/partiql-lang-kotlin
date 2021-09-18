@@ -14,10 +14,12 @@
 
 package org.partiql.lang.syntax
 
-import org.partiql.lang.syntax.TokenType.*
+import org.partiql.lang.syntax.TokenType.KEYWORD
+import org.partiql.lang.syntax.TokenType.OPERATOR
 
 @JvmField internal val TRIM_SPECIFICATION_KEYWORDS = setOf("both", "leading", "trailing")
 
+//TODO: Rename DatePart to DateTimePart. Check issue https://github.com/partiql/partiql-lang-kotlin/issues/409
 internal enum class DatePart {
     YEAR, MONTH, DAY, HOUR, MINUTE, SECOND, TIMEZONE_HOUR, TIMEZONE_MINUTE
 }
@@ -108,6 +110,8 @@ internal val DATE_PART_KEYWORDS: Set<String> = DatePart.values()
     "exists",
     "external",
     "extract",
+    "date_add",
+    "date_diff",
     "false",
     "fetch",
     "first",
@@ -217,8 +221,6 @@ internal val DATE_PART_KEYWORDS: Set<String> = DatePart.values()
     "then",
     "time",
     "timestamp",
-    "timezone_hour",
-    "timezone_minute",
     "to",
     "transaction",
     "translate",
@@ -246,8 +248,9 @@ internal val DATE_PART_KEYWORDS: Set<String> = DatePart.values()
     "write",
     "zone"
 )
-    .union(TRIM_SPECIFICATION_KEYWORDS)
-    .union(DATE_PART_KEYWORDS)
+// Note: DATE_PART_KEYWORDs are not keywords in the traditional sense--they are only keywords within
+// the context of the DATE_ADD, DATE_DIFF and EXTRACT functions, for which [SqlParser] has special support.
+// Similarly, TRIM_SPECIFICATION_KEYWORDS are only keywords within the context of the TRIM function.
 
 /** PartiQL additional keywords. */
 @JvmField internal val SQLPP_KEYWORDS = setOf(
@@ -258,6 +261,15 @@ internal val DATE_PART_KEYWORDS: Set<String> = DatePart.values()
     "tuple",
     "remove",
     "index",
+    "conflict",
+    "do",
+    "nothing",
+    "returning",
+    "modified",
+    "all",
+    "new",
+    "old",
+    "let",
 
     // Ion type names
 
@@ -310,6 +322,8 @@ internal val DATE_PART_KEYWORDS: Set<String> = DatePart.values()
     "decimal"           to 0..2, // Ion & SQL-92
     "numeric"           to 0..2, // SQL-92
     "timestamp"         to 0..0, // Ion & SQL-92
+    "date"              to 0..0, // PartiQL & SQL-92
+    "time"              to 0..1, // PartiQL & SQL-92
     "character"         to 0..1, // SQL-92
     "character_varying" to 0..1, // SQL-92
     "string"            to 0..0, // Ion
@@ -423,7 +437,13 @@ internal val DATE_PART_KEYWORDS: Set<String> = DatePart.values()
     listOf("outer", "cross", "join")    to ("outer_cross_join" to KEYWORD),
     listOf("full", "outer",
            "cross", "join")             to ("outer_cross_join" to KEYWORD),
-    listOf("insert", "into")            to ("insert_into" to KEYWORD)
+    listOf("insert", "into")            to ("insert_into" to KEYWORD),
+    listOf("on", "conflict")            to ("on_conflict" to KEYWORD),
+    listOf("do", "nothing")             to ("do_nothing" to KEYWORD),
+    listOf("modified", "old")           to ("modified_old" to KEYWORD),
+    listOf("modified", "new")           to ("modified_new" to KEYWORD),
+    listOf("all", "old")                to ("all_old" to KEYWORD),
+    listOf("all", "new")                to ("all_new" to KEYWORD)
 )
 
 @JvmField internal val MULTI_LEXEME_MIN_LENGTH = MULTI_LEXEME_TOKEN_MAP.keys.map { it.size }.min()!!
@@ -454,50 +474,65 @@ internal val DATE_PART_KEYWORDS: Set<String> = DatePart.values()
     BINARY_OPERATORS + UNARY_OPERATORS + SPECIAL_OPERATORS
 
 /**
+ * Operator precedence groups
+ */
+enum class OperatorPrecedenceGroups(val precedence: Int) {
+    SET(5),
+    SELECT(6),
+    LOGICAL_OR(10),
+    LOGICAL_AND(20),
+    LOGICAL_NOT(30),
+    EQUITY(40),
+    COMPARISON(50),
+    ADDITION(60),
+    MULTIPLY(70)
+}
+
+/**
  * Precedence rank integer is ascending with higher precedence and is in terms of the
  * un-aliased names of the operators.
  */
 @JvmField internal val OPERATOR_PRECEDENCE = mapOf(
     // set operator group
-    "intersect"     to 5,
-    "intersect_all" to 5,
-    "except"        to 5,
-    "except_all"    to 5,
-    "union"         to 5,
-    "union_all"     to 5,
+    "intersect"     to OperatorPrecedenceGroups.SET.precedence,
+    "intersect_all" to OperatorPrecedenceGroups.SET.precedence,
+    "except"        to OperatorPrecedenceGroups.SET.precedence,
+    "except_all"    to OperatorPrecedenceGroups.SET.precedence,
+    "union"         to OperatorPrecedenceGroups.SET.precedence,
+    "union_all"     to OperatorPrecedenceGroups.SET.precedence,
 
     // logical group
-    "or"            to 10,
-    "and"           to 20,
-    "not"           to 30,
+    "or"            to OperatorPrecedenceGroups.LOGICAL_OR.precedence,
+    "and"           to OperatorPrecedenceGroups.LOGICAL_AND.precedence,
+    "not"           to OperatorPrecedenceGroups.LOGICAL_NOT.precedence,
 
     // equality group (TODO add other morphemes of equality/non-equality)
-    "="             to 40,
-    "<>"            to 40,
-    "is"            to 40,
-    "is_not"        to 40,
-    "in"            to 40,
-    "not_in"        to 40,
+    "="             to OperatorPrecedenceGroups.EQUITY.precedence,
+    "<>"            to OperatorPrecedenceGroups.EQUITY.precedence,
+    "is"            to OperatorPrecedenceGroups.EQUITY.precedence,
+    "is_not"        to OperatorPrecedenceGroups.EQUITY.precedence,
+    "in"            to OperatorPrecedenceGroups.EQUITY.precedence,
+    "not_in"        to OperatorPrecedenceGroups.EQUITY.precedence,
 
     // comparison group
-    "<"             to 50,
-    "<="            to 50,
-    ">"             to 50,
-    ">="            to 50,
-    "between"       to 50, // note that this **must** be above 'AND'
-    "not_between"   to 50, // note that this **must** be above 'AND'
-    "like"          to 50,
-    "not_like"      to 50,
+    "<"             to OperatorPrecedenceGroups.COMPARISON.precedence,
+    "<="            to OperatorPrecedenceGroups.COMPARISON.precedence,
+    ">"             to OperatorPrecedenceGroups.COMPARISON.precedence,
+    ">="            to OperatorPrecedenceGroups.COMPARISON.precedence,
+    "between"       to OperatorPrecedenceGroups.COMPARISON.precedence, // note that this **must** be above 'AND'
+    "not_between"   to OperatorPrecedenceGroups.COMPARISON.precedence, // note that this **must** be above 'AND'
+    "like"          to OperatorPrecedenceGroups.COMPARISON.precedence,
+    "not_like"      to OperatorPrecedenceGroups.COMPARISON.precedence,
 
     // the addition group
-    "+"             to 60,
-    "-"             to 60,
-    "||"            to 60,
+    "+"             to OperatorPrecedenceGroups.ADDITION.precedence,
+    "-"             to OperatorPrecedenceGroups.ADDITION.precedence,
+    "||"            to OperatorPrecedenceGroups.ADDITION.precedence,
 
     // multiply group (TODO add exponentiation)
-    "*"             to 70,
-    "/"             to 70,
-    "%"             to 70
+    "*"             to OperatorPrecedenceGroups.MULTIPLY.precedence,
+    "/"             to OperatorPrecedenceGroups.MULTIPLY.precedence,
+    "%"             to OperatorPrecedenceGroups.MULTIPLY.precedence
 )
 
 //

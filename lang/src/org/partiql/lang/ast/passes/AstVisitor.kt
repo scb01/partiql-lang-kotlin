@@ -27,7 +27,7 @@ import org.partiql.lang.ast.*
  *
  *  One `visit*` function is included for each base type in the AST.
  */
-@Deprecated("Use AstNode#iterator() or AstNode#children()")
+@Deprecated("Use org.lang.partiql.domains.PartiqlAst.Visitor instead")
 interface AstVisitor {
     /**
      * Invoked by [AstWalker] for every instance of [ExprNode] encountered.
@@ -91,6 +91,15 @@ interface AstVisitor {
     fun visitDataManipulationOperation(dmlOp: DataManipulationOperation) {
         // Default implementation does nothing.
     }
+
+    /**
+     * Invoked by [AstWalker] for every instance of [OnConflict].
+     *
+     * The operation's children are visited after this method is invoked.
+     */
+    fun visitOnConflict(onConflict: OnConflict) {
+        // Default implementation does nothing.
+    }
 }
 
 /**
@@ -126,6 +135,10 @@ open class AstVisitorBase : AstVisitor {
     }
 
     override fun visitDataManipulationOperation(dmlOp: DataManipulationOperation) {
+        // Default implementation does nothing.
+    }
+
+    override fun visitOnConflict(onConflict: OnConflict) {
         // Default implementation does nothing.
     }
 }

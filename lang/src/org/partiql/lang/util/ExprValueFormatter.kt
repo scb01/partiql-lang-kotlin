@@ -4,6 +4,9 @@ import com.amazon.ion.system.*
 import org.partiql.lang.eval.*
 import org.partiql.lang.eval.ExprValueType.*
 import java.lang.StringBuilder
+import java.time.LocalTime
+import java.time.OffsetTime
+import java.time.format.DateTimeFormatter
 
 private const val MISSING_STRING = "MISSING"
 private const val NULL_STRING = "NULL"
@@ -47,6 +50,10 @@ class ConfigurableExprValueFormatter(private val config: Configuration) : ExprVa
 
                 STRING                                     -> out.append("'${value.scalar.stringValue()}'")
 
+                DATE                                       -> out.append(value.scalar.dateValue().toString())
+
+                TIME                                       -> out.append(value.scalar.timeValue().toString())
+
                 // fallback to an Ion literal for all types that don't have a native PartiQL representation
                 FLOAT, TIMESTAMP, SYMBOL, CLOB, BLOB, SEXP -> prettyPrintIonLiteral(value)
 
@@ -70,7 +77,7 @@ class ConfigurableExprValueFormatter(private val config: Configuration) : ExprVa
             val iterator = value.iterator()
 
             if (iterator.hasNext()) {
-                out.append(openingMarker).append(config.containerValueSeparator) 
+                out.append(openingMarker).append(config.containerValueSeparator)
 
                 currentIndentation += 1
 
@@ -86,7 +93,7 @@ class ConfigurableExprValueFormatter(private val config: Configuration) : ExprVa
                     else {
                         out.append(config.containerValueSeparator)
                     }
-                    
+
                     writeIndentation()
                     prettyPrintElement(v)
                 }
@@ -121,5 +128,3 @@ class ConfigurableExprValueFormatter(private val config: Configuration) : ExprVa
         }
     }
 }
-
-

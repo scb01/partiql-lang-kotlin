@@ -15,10 +15,12 @@
 package org.partiql.lang.ast.passes
 
 import org.partiql.lang.ast.*
+import org.partiql.lang.util.checkThreadInterrupted
 
 /**
  * Provides a minimal interface for an AST rewriter implementation.
  */
+@Deprecated("New rewriters should implement PIG's PartiqlAst.VisitorTransform instead")
 interface AstRewriter {
     fun rewriteExprNode(node: ExprNode): ExprNode
 }
@@ -27,10 +29,12 @@ interface AstRewriter {
  * This is the base-class for an AST rewriter which simply makes an exact copy of the original AST.
  * Simple rewrites can be performed by inheritors.
  */
+@Deprecated("New rewriters should implement PIG's VisitorTransformBase instead")
 open class AstRewriterBase : AstRewriter {
 
-    override fun rewriteExprNode(node: ExprNode): ExprNode =
-        when (node) {
+    override fun rewriteExprNode(node: ExprNode): ExprNode {
+        checkThreadInterrupted()
+        return when (node) {
             is Literal           -> rewriteLiteral(node)
             is LiteralMissing    -> rewriteLiteralMissing(node)
             is VariableReference -> rewriteVariableReference(node)
@@ -45,7 +49,15 @@ open class AstRewriterBase : AstRewriter {
             is Select            -> rewriteSelect(node)
             is Parameter         -> rewriteParameter(node)
             is DataManipulation  -> rewriteDataManipulation(node)
+            is CreateTable       -> rewriteCreateTable(node)
+            is CreateIndex       -> rewriteCreateIndex(node)
+            is DropTable         -> rewriteDropTable(node)
+            is DropIndex         -> rewriteDropIndex(node)
+            is Exec              -> rewriteExec(node)
+            is DateTimeType.Date -> rewriteDate(node)
+            is DateTimeType.Time -> rewriteTime(node)
         }
+    }
 
     open fun rewriteMetas(itemWithMetas: HasMetas): MetaContainer = itemWithMetas.metas
 
@@ -136,19 +148,22 @@ open class AstRewriterBase : AstRewriter {
      * The traversal order is in the SQL semantic order--that is:
      *
      * 1. `FROM`
-     * 2. `WHERE`
-     * 3. `GROUP BY`
-     * 4. `HAVING`
-     * 5. *projection*
-     * 6. `ORDER BY` (to be implemented)
-     * 7. `LIMIT`
+     * 2. `LET`
+     * 3. `WHERE`
+     * 4. `GROUP BY`
+     * 5. `HAVING`
+     * 6. *projection*
+     * 7. `ORDER BY` (to be implemented)
+     * 8. `LIMIT`
      */
     protected open fun innerRewriteSelect(selectExpr: Select): Select {
         val from = rewriteFromSource(selectExpr.from)
+        val fromLet = selectExpr.fromLet?.let { rewriteLetSource(it) }
         val where = selectExpr.where?.let { rewriteSelectWhere(it) }
         val groupBy = selectExpr.groupBy?.let { rewriteGroupBy(it) }
         val having = selectExpr.having?.let { rewriteSelectHaving(it) }
         val projection = rewriteSelectProjection(selectExpr.projection)
+        val orderBy = selectExpr.orderBy?.let { rewriteOrderBy(it) }
         val limit = selectExpr.limit?.let { rewriteSelectLimit(it) }
         val metas = rewriteSelectMetas(selectExpr)
 
@@ -156,9 +171,11 @@ open class AstRewriterBase : AstRewriter {
             setQuantifier = selectExpr.setQuantifier,
             projection = projection,
             from = from,
+            fromLet = fromLet,
             where = where,
             groupBy = groupBy,
             having = having,
+            orderBy = orderBy,
             limit = limit,
             metas = metas)
     }
@@ -188,8 +205,8 @@ open class AstRewriterBase : AstRewriter {
 
     open fun rewriteSelectProjectionPivot(projection: SelectProjectionPivot): SelectProjection =
         SelectProjectionPivot(
-            rewriteExprNode(projection.valueExpr),
-            rewriteExprNode(projection.nameExpr))
+            rewriteExprNode(projection.nameExpr),
+            rewriteExprNode(projection.valueExpr))
 
     open fun rewriteSelectListItem(item: SelectListItem): SelectListItem =
         when(item) {
@@ -217,9 +234,11 @@ open class AstRewriterBase : AstRewriter {
             is PathComponentExpr     -> rewritePathComponentExpr(pathComponent)
         }
 
-    open fun rewritePathComponentUnpivot(pathComponent: PathComponent): PathComponent = pathComponent
+    open fun rewritePathComponentUnpivot(pathComponent: PathComponentUnpivot): PathComponent =
+        PathComponentUnpivot(rewriteMetas(pathComponent))
 
-    open fun rewritePathComponentWildcard(pathComponent: PathComponent): PathComponent = pathComponent
+    open fun rewritePathComponentWildcard(pathComponent: PathComponentWildcard): PathComponent =
+        PathComponentWildcard(rewriteMetas(pathComponent))
 
     open fun rewritePathComponentExpr(pathComponent: PathComponentExpr): PathComponent =
         PathComponentExpr(rewriteExprNode(pathComponent.expr), pathComponent.case)
@@ -241,6 +260,12 @@ open class AstRewriterBase : AstRewriter {
             variables.asName?.let { rewriteSymbolicName(it) },
             variables.atName?.let { rewriteSymbolicName(it) },
             variables.byName?.let { rewriteSymbolicName(it) })
+
+    open fun rewriteLetSource(letSource: LetSource) =
+        LetSource(letSource.bindings.map { rewriteLetBinding(it) })
+
+    open fun rewriteLetBinding(letBinding: LetBinding): LetBinding =
+        LetBinding(rewriteExprNode(letBinding.expr), rewriteSymbolicName(letBinding.name))
 
     /**
      * This is called by the methods responsible for rewriting instances of the [FromSourceLet]
@@ -279,6 +304,16 @@ open class AstRewriterBase : AstRewriter {
         GroupByItem(
             rewriteExprNode(item.expr),
             item.asName?.let { rewriteSymbolicName(it) } )
+
+    open fun rewriteOrderBy(orderBy: OrderBy): OrderBy =
+        OrderBy(
+            orderBy.sortSpecItems.map { rewriteSortSpec(it) })
+
+    open fun rewriteSortSpec(sortSpec: SortSpec): SortSpec =
+        SortSpec(
+            rewriteExprNode(sortSpec.expr),
+            sortSpec.orderingSpec
+        )
 
     open fun rewriteDataType(dataType: DataType) = dataType
 
@@ -319,17 +354,31 @@ open class AstRewriterBase : AstRewriter {
     open fun innerRewriteDataManipulation(node: DataManipulation): DataManipulation {
         val from = node.from?.let { rewriteFromSource(it) }
         val where = node.where?.let { rewriteDataManipulationWhere(it) }
-        val dmlOperation = rewriteDataManipulationOperation(node.dmlOperation)
+        val returning = node.returning?.let { rewriteReturningExpr(it) }
+        val dmlOperations = rewriteDataManipulationOperations(node.dmlOperations)
         val metas = rewriteMetas(node)
 
         return DataManipulation(
-            dmlOperation,
+            dmlOperations,
             from,
             where,
+            returning,
             metas)
     }
 
     open fun rewriteDataManipulationWhere(node: ExprNode):ExprNode = rewriteExprNode(node)
+
+    open fun rewriteReturningExpr(returningExpr: ReturningExpr): ReturningExpr =
+        ReturningExpr(
+            returningExpr.returningElems.map { rewriteReturningElem(it) })
+
+    open fun rewriteReturningElem(returningElem: ReturningElem): ReturningElem =
+        ReturningElem(
+            returningElem.returningMapping,
+            returningElem.columnComponent)
+
+    open fun rewriteDataManipulationOperations(node: DmlOpList) : DmlOpList =
+        DmlOpList(node.ops.map { rewriteDataManipulationOperation(it) })
 
     open fun rewriteDataManipulationOperation(node: DataManipulationOperation): DataManipulationOperation =
         when(node) {
@@ -337,33 +386,79 @@ open class AstRewriterBase : AstRewriter {
             is InsertValueOp -> rewriteDataManipulationOperationInsertValueOp(node)
             is AssignmentOp  -> rewriteDataManipulationOperationAssignmentOp(node)
             is RemoveOp      -> rewriteDataManipulationOperationRemoveOp(node)
-            DeleteOp         -> rewriteDataManipulationOperationDeleteOp()
+            is DeleteOp      -> rewriteDataManipulationOperationDeleteOp()
         }
 
-    fun rewriteDataManipulationOperationInsertOp(node: InsertOp): DataManipulationOperation =
+    open fun rewriteDataManipulationOperationInsertOp(node: InsertOp): DataManipulationOperation =
         InsertOp(
             rewriteExprNode(node.lvalue),
             rewriteExprNode(node.values)
         )
 
-    fun rewriteDataManipulationOperationInsertValueOp(node: InsertValueOp): DataManipulationOperation =
+    open fun rewriteDataManipulationOperationInsertValueOp(node: InsertValueOp): DataManipulationOperation =
         InsertValueOp(
             rewriteExprNode(node.lvalue),
             rewriteExprNode(node.value),
-            node.position?.let { rewriteExprNode(it) })
+            node.position?.let { rewriteExprNode(it) },
+            node.onConflict?.let { rewriteOnConflict(it) })
 
-    fun rewriteDataManipulationOperationAssignmentOp(node: AssignmentOp): DataManipulationOperation =
-        AssignmentOp(node.assignments.map { rewriteAssignment(it) })
+    fun rewriteOnConflict(node: OnConflict) : OnConflict {
+        return OnConflict(rewriteExprNode(node.condition), node.conflictAction)
+    }
 
-    fun rewriteDataManipulationOperationRemoveOp(node: RemoveOp): DataManipulationOperation =
+    open fun rewriteDataManipulationOperationAssignmentOp(node: AssignmentOp): DataManipulationOperation =
+        AssignmentOp(rewriteAssignment(node.assignment) )
+
+    open fun rewriteDataManipulationOperationRemoveOp(node: RemoveOp): DataManipulationOperation =
         RemoveOp(rewriteExprNode(node.lvalue))
 
-    fun rewriteDataManipulationOperationDeleteOp(): DataManipulationOperation = DeleteOp
+    open fun rewriteDataManipulationOperationDeleteOp(): DataManipulationOperation = DeleteOp
 
     open fun rewriteAssignment(node: Assignment): Assignment =
         Assignment(
             rewriteExprNode(node.lvalue),
             rewriteExprNode(node.rvalue))
 
-    open fun rewriteSchemaObjectDefinition(definition: SchemaObjectDefinition): SchemaObjectDefinition = definition
+    open fun rewriteCreateTable(node: CreateTable): CreateTable =
+        CreateTable(node.tableName, rewriteMetas(node))
+
+    open fun rewriteCreateIndex(node: CreateIndex): CreateIndex =
+        CreateIndex(
+            node.tableName,
+            node.keys.map { rewriteExprNode(it) },
+            rewriteMetas(node))
+
+    open fun rewriteDropTable(node: DropTable): DropTable =
+        DropTable(node.tableName, rewriteMetas(node))
+
+    open fun rewriteDropIndex(node: DropIndex): DropIndex =
+        DropIndex(
+            node.tableName,
+            rewriteVariableReference(node.identifier) as VariableReference,
+            rewriteMetas(node))
+
+    open fun rewriteExec(node: Exec): Exec =
+        Exec(
+            rewriteSymbolicName(node.procedureName),
+            node.args.map { rewriteExprNode(it) },
+            rewriteMetas(node))
+
+    open fun rewriteDate(node: DateTimeType.Date): DateTimeType.Date =
+        DateTimeType.Date(
+            node.year,
+            node.month,
+            node.day,
+            rewriteMetas(node)
+        )
+
+    open fun rewriteTime(node: DateTimeType.Time): DateTimeType.Time =
+        DateTimeType.Time(
+            node.hour,
+            node.minute,
+            node.second,
+            node.nano,
+            node.precision,
+            node.tz_minutes,
+            rewriteMetas(node)
+        )
 }

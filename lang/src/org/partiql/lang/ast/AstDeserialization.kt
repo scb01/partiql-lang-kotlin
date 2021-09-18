@@ -24,8 +24,10 @@ import org.partiql.lang.util.*
  *
  * Implementations of this should not be assumed to be thread-safe.
  */
+@Deprecated("Please use PartiqlAst")
 interface AstDeserializer {
-    fun deserialize(sexp: IonSexp): ExprNode
+    @Deprecated("Please use PartiqlAst")
+    fun deserialize(sexp: IonSexp, astVersion: AstVersion): ExprNode
 }
 
 /**
@@ -95,20 +97,16 @@ private class TagDefinition(val tagText: String, val validationRules: Map<AstVer
 private enum class NodeTag(val definition: TagDefinition) {
 
     // Valid expressions:
-    META(
-        TagDefinition(
-            "meta",
-            mapOf(
-                AstVersion.V0 to SexpValidationRules(2, 2),
-                AstVersion.V1 to SexpValidationRules(1, Int.MAX_VALUE)
-        ))),
-    TERM(TagDefinition("term", AstVersion.V1, 1, 2)),
-    EXP(TagDefinition("exp", AstVersion.V1, 1, 1)),
+    META(TagDefinition("meta", 2, 2)),
     LIT(TagDefinition("lit", 1, 1)),
     MISSING(TagDefinition("missing", 0, 0)),
-    ID(TagDefinition("id", 2, 2)),
+    // TODO:  there is no way to specify a change of arity from version to version--do we care?
+    ID(TagDefinition("id", 2, 3)),
     SELECT(TagDefinition("select", 2, 5)),
     PIVOT(TagDefinition("pivot", 2, 5)),
+    CREATE(TagDefinition("create", AstVersion.V0, 2, 2)),
+    DROP_TABLE(TagDefinition("drop_table", 1, 1)),
+    DROP_INDEX(TagDefinition("drop_index", 2, 2)),
     DATA_MANIPULATION(TagDefinition("dml", 1, 3)),
     PATH(TagDefinition("path", 2, Int.MAX_VALUE)),
     CALL_AGG(TagDefinition("call_agg", 3, 3)),
@@ -117,60 +115,51 @@ private enum class NodeTag(val definition: TagDefinition) {
     LIST(TagDefinition("list", 0, Int.MAX_VALUE)),
     BAG(TagDefinition("bag", 0, Int.MAX_VALUE)),
     SEXP(TagDefinition("sexp", 0, Int.MAX_VALUE)),
-    UNPIVOT(TagDefinition("unpivot", 1, 1)),
+    UNPIVOT(TagDefinition("unpivot", 1, 4)),
     SIMPLE_CASE(TagDefinition("simple_case", 0, Int.MAX_VALUE)),
     SEARCHED_CASE(TagDefinition("searched_case", 1, Int.MAX_VALUE)),
-    WHEN(TagDefinition("when", 1, 2)),
-    ELSE(TagDefinition("else", 1)),
+    WHEN(TagDefinition("when", AstVersion.V0, 1, 2)),
+    ELSE(TagDefinition("else", AstVersion.V0, 1)),
     PARAMETER(TagDefinition("parameter", 1)),
 
     NARY_NOT(TagDefinition("not", 1, Int.MAX_VALUE)),
-    NARY_ADD(TagDefinition("+", 1, Int.MAX_VALUE)),
-    NARY_SUB(TagDefinition("-", 1, Int.MAX_VALUE)),
-    NARY_MUL(
-        TagDefinition(
-            "*",
-            mapOf(
-                AstVersion.V0 to SexpValidationRules(0, Int.MAX_VALUE),
-                AstVersion.V1 to SexpValidationRules(2, Int.MAX_VALUE)
-        ))),
-    NARY_DIV(TagDefinition("/", 2, Int.MAX_VALUE)),
-    NARY_MOD(TagDefinition("%", 2, Int.MAX_VALUE)),
-    NARY_GT(TagDefinition(">", 2, Int.MAX_VALUE)),
-    NARY_GTE(TagDefinition(">=", 2, Int.MAX_VALUE)),
-    NARY_LT(TagDefinition("<", 2, Int.MAX_VALUE)),
-    NARY_LTE(TagDefinition("<=", 2, Int.MAX_VALUE)),
-    NARY_EQ(TagDefinition("=", 2, Int.MAX_VALUE)),
-    NARY_IN(TagDefinition("in", 2, Int.MAX_VALUE)),
+    NARY_ADD(TagDefinition("+", AstVersion.V0, 1, Int.MAX_VALUE)),
+    NARY_SUB(TagDefinition("-", AstVersion.V0, 1, Int.MAX_VALUE)),
+    NARY_MUL(TagDefinition("*", 0, Int.MAX_VALUE)),
+    NARY_DIV(TagDefinition("/", AstVersion.V0, 2, Int.MAX_VALUE)),
+    NARY_MOD(TagDefinition("%", AstVersion.V0, 2, Int.MAX_VALUE)),
+    NARY_GT(TagDefinition(">", AstVersion.V0, 2, Int.MAX_VALUE)),
+    NARY_GTE(TagDefinition(">=", AstVersion.V0, 2, Int.MAX_VALUE)),
+    NARY_LT(TagDefinition("<", AstVersion.V0, 2, Int.MAX_VALUE)),
+    NARY_LTE(TagDefinition("<=", AstVersion.V0, 2, Int.MAX_VALUE)),
+    NARY_EQ(TagDefinition("=", AstVersion.V0, 2, Int.MAX_VALUE)),
+    NARY_IN(TagDefinition("in", AstVersion.V0, 2, Int.MAX_VALUE)),
     NARY_NOT_IN(TagDefinition("not_in", AstVersion.V0, 2, Int.MAX_VALUE)),
-    NARY_NE(TagDefinition("<>", 2, Int.MAX_VALUE)),
+    NARY_NE(TagDefinition("<>", AstVersion.V0, 2, Int.MAX_VALUE)),
     NARY_AND(TagDefinition("and", 2, Int.MAX_VALUE)),
     NARY_OR(TagDefinition("or", 2, Int.MAX_VALUE)),
-    NARY_LIKE(TagDefinition("like", 2, Int.MAX_VALUE)),
+    NARY_LIKE(TagDefinition("like", AstVersion.V0, 2, Int.MAX_VALUE)),
     NARY_NOT_LIKE(TagDefinition("not_like", AstVersion.V0, 2, Int.MAX_VALUE)),
     NARY_BETWEEN(TagDefinition("between", 3, Int.MAX_VALUE)),
     NARY_NOT_BETWEEN(TagDefinition("not_between", AstVersion.V0, 3, Int.MAX_VALUE)),
     NARY_CALL(TagDefinition("call", 1, Int.MAX_VALUE)),
-    NARY_STRING_CONCAT(TagDefinition("||", 1, Int.MAX_VALUE)),
+    NARY_STRING_CONCAT(TagDefinition("||", AstVersion.V0, 1, Int.MAX_VALUE)),
     NARY_UNION(TagDefinition("union", 2, Int.MAX_VALUE)),
-    NARY_UNION_ALL(TagDefinition("union_all", 2, Int.MAX_VALUE)),
+    NARY_UNION_ALL(TagDefinition("union_all", AstVersion.V0,2, Int.MAX_VALUE)),
     NARY_EXCEPT(TagDefinition("except", 2, Int.MAX_VALUE)),
-    NARY_EXCEPT_ALL(TagDefinition("except_all", 2, Int.MAX_VALUE)),
+    NARY_EXCEPT_ALL(TagDefinition("except_all", AstVersion.V0,2, Int.MAX_VALUE)),
     NARY_INTERSECT(TagDefinition("intersect", 2, Int.MAX_VALUE)),
-    NARY_INTERSECT_ALL(TagDefinition("intersect_all", 2, Int.MAX_VALUE)),
+    NARY_INTERSECT_ALL(TagDefinition("intersect_all", AstVersion.V0,2, Int.MAX_VALUE)),
 
-    TYPED_IS(TagDefinition("is", 2)),
+    TYPED_IS(TagDefinition("is", AstVersion.V0, 2)),
     TYPED_IS_NOT(TagDefinition("is_not", AstVersion.V0, 2)),
     TYPED_CAST(TagDefinition("cast", 2)),
 
     // These are not expressions by themselves but are still valid tags
 
-    // Valid within select or path...
-    STAR(TagDefinition("star", AstVersion.V1, 0, 1)),
-
     // Only valid within (create ...)
-    TABLE(TagDefinition("table", 0, 0)),
-    INDEX(TagDefinition("index", 2, 2)),
+    TABLE(TagDefinition("table", 0, 1)),
+    INDEX(TagDefinition("index", AstVersion.V0, 2, 2)),
     KEYS(TagDefinition("keys", 1, Int.MAX_VALUE)),
 
     // Only valid within (dml ...)
@@ -183,10 +172,9 @@ private enum class NodeTag(val definition: TagDefinition) {
 
     // Only valid within (select ...)
     PROJECT(TagDefinition("project", 1)),
-    PROJECT_ALL(TagDefinition("project_all", AstVersion.V0, 0, 1)),
-    PATH_PROJECT_ALL(TagDefinition("path_project_all", AstVersion.V1, 1)),
-    PROJECT_DISTINCT(TagDefinition("project_distinct", 1)),
-    VALUE(TagDefinition("value", 1)),
+    PROJECT_ALL(TagDefinition("project_all", 0, 1)),
+    PROJECT_DISTINCT(TagDefinition("project_distinct", AstVersion.V0, 1)),
+    VALUE(TagDefinition("value", AstVersion.V0, 1)),
 
     // Only valid within (select ...) or (pivot ...) or (dml ...)
     FROM(TagDefinition("from", 1)),
@@ -209,7 +197,7 @@ private enum class NodeTag(val definition: TagDefinition) {
     AT(TagDefinition("at", 2)),
 
     /** @ scope qualifier, unfortunately can't be named "at" due to [AT]. */
-    SCOPE_QUALIFIER(TagDefinition("@", 1)),
+    SCOPE_QUALIFIER(TagDefinition("@", AstVersion.V0, 1)),
 
     // Only valid within a from clause
     INNER_JOIN(TagDefinition("inner_join", 2, 3)),
@@ -218,15 +206,14 @@ private enum class NodeTag(val definition: TagDefinition) {
     RIGHT_JOIN(TagDefinition("right_join", 2, 3)),
 
     // Only valided in a typed expression i.e. the second argument of (is ...) or (cast ...))
-    TYPE(TagDefinition("type", 1, 3)),
+    TYPE(TagDefinition("type", AstVersion.V0, 1, 3)),
 
     //Only valid as path components...
-    CASE_INSENSITIVE(TagDefinition("case_insensitive", AstVersion.V0, 1)),
-    CASE_SENSITIVE(TagDefinition("case_sensitive", AstVersion.V0, 1)),
-    PATH_ELEMENT(TagDefinition("path_element", AstVersion.V1, 1, 2));
+    CASE_INSENSITIVE(TagDefinition("case_insensitive", 0, 1)),
+    CASE_SENSITIVE(TagDefinition("case_sensitive", 0, 1));
 
     companion object {
-        private val tagLookup = NodeTag.values().map { Pair(it.definition.tagText, it) }.toMap()
+        private val tagLookup = values().map { Pair(it.definition.tagText, it) }.toMap()
 
         /**
          * Returns the [NodeTag] value given [tagText] or null if it was not found.
@@ -254,85 +241,40 @@ class AstDeserializerBuilder(val ion: IonSystem) {
      * The instance that is returned should not be accessed concurrently by different threads.
      */
     fun build(): AstDeserializer =
-        // Note: .toMap() makes an immutable map.
-        AstDeserializerImpl(ion, metaDeserializers.toMap())
-}
-
-/**
- * A [Meta] implementation used to store metas encountered during deserialization that do not
- * have a registered deserializer. This allows such metas to be retained during subsequent serialization.
- */
-private data class UnknownMeta(override val tag: String, val metaSexp: IonSexp) : Meta {
-    override fun serialize(writer: IonWriter) {
-        metaSexp.forEach {
-            it.system.newReader(it).use { ionValue ->
-                ionValue.next()
-                writer.writeValue(ionValue)
-            }
+        object : AstDeserializer {
+            override fun deserialize(sexp: IonSexp, astVersion: AstVersion): ExprNode =
+                // Note: .toMap() makes an immutable map.
+                AstDeserializerInternal(astVersion, ion, metaDeserializers.toMap()).deserialize(sexp)
         }
-    }
 }
 
-private class AstDeserializerImpl(
+internal class AstDeserializerInternal(
+    val astVersion: AstVersion,
     val ion: IonSystem,
     private val metaDeserializers: Map<String, MetaDeserializer>
-) : AstDeserializer {
-
-    /**
-     * The version of the AST we are currently deserializing.
-     * This is modified only if the version wrapper is present in the AST being serialized.
-     *
-     * The existence of this mutable state means that instances should not be accessed concurrently by different threads.
-     */
-    private var astVersion = DEFAULT_AST_VERSION
-
-    companion object {
-        private val DEFAULT_AST_VERSION = AstVersion.V0
-    }
+) {
 
     private val IonSexp.nodeTag: NodeTag
         get() = NodeTag.fromTagText(this.tagText) ?: err("Unknown tag: '${this.tagText}'")
 
-    override fun deserialize(sexp: IonSexp) =
-        when (sexp.tagText) {
-        // There's an AST version wrapper, so let's extract the version and set astVersion.
-            "ast" -> {
-                val versionValue = sexp.singleArgWithTag("version").asIonSexp().args.first().longValue().toInt()
-                val root = sexp.singleArgWithTag("root").asIonSexp()
+    fun deserialize(sexp: IonSexp): ExprNode {
+        validate(sexp)
+        return deserializeExprNode(sexp)
+    }
 
-                // In case we get a very old or newer AST version that we don't support.
-                astVersion = AstVersion.values().singleOrNull { it.number == versionValue }
-                    ?: err(
-                    "This version of AstDeserializer does not know how to deserialize an AST of " +
-                    "version ${astVersion}.  Only versions ${AstVersion.versionsAsString} are supported.")
+    internal fun validate(rootSexp: IonSexp) {
+        checkThreadInterrupted()
 
-
-                val rootSexp = root.args.first().asIonSexp()
-                validate(rootSexp)
-                deserializeExprNode(rootSexp)
-            }
-            else  -> {
-                astVersion = DEFAULT_AST_VERSION
-                validate(sexp)
-                deserializeExprNode(sexp)
-            }
-        }
-
-    private fun validate(rootSexp: IonSexp) {
         val nodeTag = rootSexp.nodeTag // Throws if nodeTag is invalid for the current AstVersion
         val nodeArgs = rootSexp.args
 
         val rules = nodeTag.definition.validationRules[astVersion]
-                    ?: err("Tag '${nodeTag.definition.tagText}' is not valid for AST version ${astVersion.number}.")
+            ?: err("Tag '${nodeTag.definition.tagText}' is not valid for AST version ${astVersion.number}.")
 
         if (!rules.arityRange.contains(nodeArgs.size)) {
             err("Incorrect arity of ${nodeArgs.size} for node '${nodeTag.definition.tagText}'.  Expected ${rules.arityRange}")
         }
 
-        //Do not attempt to validate metas in V1...
-        if (astVersion == AstVersion.V1 && nodeTag == NodeTag.META) {
-            return
-        }
         if (nodeTag != NodeTag.LIT) {
             nodeArgs.filterIsInstance<IonSexp>().forEach {
                 validate(it)
@@ -345,88 +287,45 @@ private class AstDeserializerImpl(
      * node, where `exp` contains the actual expression.  In this case, this function constitutes a [SourceLocationMeta]
      * from the second argument of `meta` which is then passed to [deserializeNode] as the single element of a
      * [MetaContainer] for use when instantiating the node representing `exp`.
-     *
-     * In version 1 of the AST, each node may be optionally wrapped in a `term` node like so:
-     *
-     * ```
-     * (term
-     *   (exp <exp>)
-     *   (meta
-     *     (meta_tag_1 <meta_data>)
-     *     (meta_tag_2 <meta_data>)))
-     * ```
-     *
-     * Each meta is parsed and a and added to a [MetaContainer] which is then passed to [deserializeNode].
-     *
-     * The [deserializeNode] argument must continue deserializing the node and does not itself need to be aware
-     * of where its metas are located relative to itself in the s-expression.
      */
-    private fun <T> deserializeMetaOrTerm(targetSexp: IonSexp, deserializeNode: (IonSexp, MetaContainer) -> T): T =
-        when (astVersion) {
-            AstVersion.V0 ->
-                when (targetSexp.tagText) {
+    private fun <T> deserializeSexpMetaOrTerm(targetSexp: IonSexp, deserializeNode: (IonSexp, MetaContainer) -> T): T =
+        deserializeIonValueMetaOrTerm(targetSexp) { target, metas ->
+            deserializeNode(target.asIonSexp(), metas)
+        }
+
+    private fun <T> deserializeIonValueMetaOrTerm(targetValue: IonValue, deserializeNode: (IonValue, MetaContainer) -> T): T =
+        when (targetValue) {
+            // If it's not an sexp, it can't be a meta node.
+            //extract meta
+            !is IonSexp -> deserializeNode(targetValue, emptyMetaContainer)
+            else -> when (targetValue.tagText) {
                 // Expression has metas -- extract source location information and pass that to [block].
-                    "meta" -> {
-                        //extract meta
-                        val struct = targetSexp.args[1].asIonStruct()
-                        val lineNum = struct.field("line").longValue()
-                        val charOffset = struct.field("column").longValue()
-                        val locationMeta = SourceLocationMeta(lineNum, charOffset)
+                "meta" -> {
+                    //extract meta
+                    val struct = targetValue.args[1].asIonStruct()
+                    val lineNum = struct.field("line").longValue()
+                    val charOffset = struct.field("column").longValue()
+                    val locationMeta = SourceLocationMeta(lineNum, charOffset)
 
-                        val expSexp = targetSexp.args[0].asIonSexp()
-                        deserializeNode(expSexp, metaContainerOf(locationMeta))
-                    }
+                    val expSexp = targetValue.args[0]
+                    deserializeNode(expSexp, metaContainerOf(locationMeta))
+                }
                 //Expression not wrapped in `meta` and therefore has no metas, pass empty MetaContainer to [deserializeNode].
-                    else   -> {
-                        deserializeNode(targetSexp, emptyMetaContainer)
-                    }
+                else -> {
+                    deserializeNode(targetValue, emptyMetaContainer)
                 }
-            AstVersion.V1 ->
-                when (targetSexp.tagText) {
-                    "term" -> {
-                        val expSexp = targetSexp.singleArgWithTag("exp").asIonSexp().args.first().asIonSexp()
-
-                        val maybeMetas = targetSexp.singleArgWithTagOrNull("meta")
-
-                        val metaContainer = maybeMetas
-                                                ?.asIonSexp()
-                                                ?.args
-                                                ?.toList()
-                                                ?.let { deserializeMetaContainer(it) }
-                                            ?: emptyMetaContainer
-
-                        deserializeNode(expSexp, metaContainer)
-                    }
-                // Expression not wrapped in `term` and therefore has no metas, pass empty MetaContainer to
-                // [deserializeNode].
-                    else   -> {
-                        deserializeNode(targetSexp, emptyMetaContainer)
-                    }
-                }
-        }
-
-    private fun deserializeMetaContainer(metasSexp: List<IonValue>): MetaContainer {
-        val outerSexps = metasSexp.toListOfIonSexp()
-
-        val metas = outerSexps.map {
-            val deserializer = metaDeserializers[it.tagText]
-            if (deserializer == null) {
-                UnknownMeta(it.tagText, it.args[0].asIonSexp())
-            }
-            else {
-                deserializer.deserialize(it.args[0].asIonSexp())
             }
         }
-        return metaContainerOf(metas)
-    }
+
 
     private fun List<IonValue>.deserializeAllExprNodes(): List<ExprNode> = map { deserializeExprNode(it.asIonSexp()) }
 
     /**
      * Given a serialized AST, return its [ExprNode] representation.
      */
-    private fun deserializeExprNode(metaOrTermOrExp: IonSexp): ExprNode =
-        deserializeMetaOrTerm(metaOrTermOrExp) { target, metas ->
+    internal fun deserializeExprNode(metaOrTermOrExp: IonSexp): ExprNode {
+        checkThreadInterrupted()
+        return deserializeSexpMetaOrTerm(metaOrTermOrExp) { target, metas ->
             val nodeTag = target.nodeTag
             val targetArgs = target.args //args is an extension property--call it once for efficiency
             //.toList() forces immutability
@@ -443,8 +342,7 @@ private class AstDeserializerImpl(
                 NodeTag.CALL_AGG_WILDCARD  -> deserializeCallAggWildcard(targetArgs, metas)
                 NodeTag.STRUCT             -> deserializeStruct(targetArgs, metas)
                 NodeTag.PARAMETER          -> Parameter(target[1].asIonInt().intValue(), metas)
-                NodeTag.LIST, NodeTag.BAG, NodeTag.SEXP
-                                           -> deserializeSeq(nodeTag, targetArgs, metas)
+                NodeTag.LIST, NodeTag.BAG, NodeTag.SEXP -> deserializeSeq(nodeTag, targetArgs, metas)
                 NodeTag.SIMPLE_CASE        -> deserializeSimpleCase(target, metas)
                 NodeTag.SEARCHED_CASE      -> deserializeSearchedCase(target, metas)
                 NodeTag.NARY_NOT           -> deserializeNAryNot(targetArgs, metas)
@@ -478,13 +376,14 @@ private class AstDeserializerImpl(
                 NodeTag.TYPED_IS           -> deserializeTypedIs(targetArgs, metas)
                 NodeTag.TYPED_IS_NOT       -> deserializeTypedIsNot(targetArgs, metas)
                 NodeTag.TYPED_CAST         -> deserializeTypedCast(targetArgs, metas)
+                NodeTag.CREATE             -> deserializeCreateV0(targetArgs, metas)
+                NodeTag.DROP_INDEX         -> deserializeDropIndexV0(targetArgs, metas)
+                NodeTag.DROP_TABLE         -> deserializeDropTableV0(targetArgs, metas)
 
                 // These are handled elsewhere
                 NodeTag.META,
-                NodeTag.TERM,
-                NodeTag.EXP,
 
-                // These can't be directly deserialized to ExprNode instances.
+                    // These can't be directly deserialized to ExprNode instances.
                 NodeTag.INDEX,
                 NodeTag.TABLE,
                 NodeTag.KEYS,
@@ -497,7 +396,6 @@ private class AstDeserializerImpl(
                 NodeTag.PROJECT,
                 NodeTag.PROJECT_DISTINCT,
                 NodeTag.PROJECT_ALL,
-                NodeTag.PATH_PROJECT_ALL,
                 NodeTag.FROM,
                 NodeTag.WHERE,
                 NodeTag.HAVING,
@@ -509,7 +407,6 @@ private class AstDeserializerImpl(
                 NodeTag.MEMBER,
                 NodeTag.AS,
                 NodeTag.AT,
-                NodeTag.PATH_ELEMENT,
                 NodeTag.UNPIVOT,
                 NodeTag.INNER_JOIN,
                 NodeTag.LEFT_JOIN,
@@ -517,23 +414,27 @@ private class AstDeserializerImpl(
                 NodeTag.RIGHT_JOIN,
                 NodeTag.CASE_INSENSITIVE,
                 NodeTag.CASE_SENSITIVE,
-                NodeTag.STAR,
                 NodeTag.VALUE,
                 NodeTag.WHEN,
                 NodeTag.ELSE,
-                NodeTag.TYPE               -> err("Invalid context for tag '${nodeTag.definition.tagText}'")
+                NodeTag.TYPE -> errInvalidContext(nodeTag)
             }
         }
+    }
 
     private fun deserializeLit(targetArgs: List<IonValue>, metas: MetaContainer) = Literal(targetArgs.first(), metas)
     private fun deserializeMissing(metas: MetaContainer) = LiteralMissing(metas)
 
     private fun deserializeId(targetArgs: List<IonValue>, metas: MetaContainer): VariableReference =
-        VariableReference(
-            targetArgs[0].asIonSymbol().stringValue(),
-            CaseSensitivity.fromSymbol(targetArgs[1].asIonSymbol().stringValue()),
-            ScopeQualifier.UNQUALIFIED,
-            metas)
+        when(astVersion) {
+            AstVersion.V0 -> {
+                VariableReference(
+                    targetArgs[0].asIonSymbol().stringValue(),
+                    CaseSensitivity.fromSymbol(targetArgs[1].asIonSymbol().stringValue()),
+                    ScopeQualifier.UNQUALIFIED,
+                    metas)
+            }
+        }
 
 
     private fun deserializeScopeQualifier(targetArgs: List<IonValue>, metas: MetaContainer): VariableReference {
@@ -545,14 +446,17 @@ private class AstDeserializerImpl(
             metas)
     }
 
-    private fun deserializeCallAgg(targetArgs: List<IonValue>, metas: MetaContainer): CallAgg =
-        CallAgg(
-            VariableReference(
-                targetArgs[0].asIonSymbol().stringValue(),
-                CaseSensitivity.INSENSITIVE,
-                ScopeQualifier.UNQUALIFIED, emptyMetaContainer),
-            SetQuantifier.valueOf(targetArgs[1].asIonSymbol().toString().toUpperCase()),
-            deserializeExprNode(targetArgs[2].asIonSexp()), metas)
+    private fun deserializeCallAgg(targetArgs: List<IonValue>, metas: MetaContainer) =
+        when (astVersion) {
+            AstVersion.V0 -> CallAgg(
+                VariableReference(
+                    targetArgs[0].asIonSymbol().stringValue(),
+                    CaseSensitivity.INSENSITIVE,
+                    ScopeQualifier.UNQUALIFIED, emptyMetaContainer),
+                SetQuantifier.valueOf(targetArgs[1].asIonSymbol().toString().toUpperCase()),
+                deserializeExprNode(targetArgs[2].asIonSexp()), metas)
+        }
+
 
     private fun deserializeCallAggWildcard(targetArgs: List<IonValue>, metas: MetaContainer): CallAgg {
         if (targetArgs[0].asIonSymbol().stringValue() != "count") {
@@ -562,7 +466,12 @@ private class AstDeserializerImpl(
         return createCountStar(ion, metas)
     }
 
-    private fun deserializeStruct(targetArgs: List<IonValue>, metas: MetaContainer): Struct {
+    private fun deserializeStruct(targetArgs: List<IonValue>, metas: MetaContainer) =
+        when (astVersion) {
+            AstVersion.V0 -> deserializeStructV0(targetArgs, metas)
+        }
+
+    private fun deserializeStructV0(targetArgs: List<IonValue>, metas: MetaContainer): Struct {
         if (targetArgs.size % 2 != 0) {
             err("Arity of 'struct' node must be divisible by 2.")
         }
@@ -589,7 +498,9 @@ private class AstDeserializerImpl(
     private fun deserializeNAryNot(
         targetArgs: List<IonValue>,
         metas: MetaContainer
-    ) = NAry(NAryOp.NOT, targetArgs.deserializeAllExprNodes(), metas)
+    ) = when (astVersion) {
+        AstVersion.V0 -> NAry(NAryOp.NOT, targetArgs.deserializeAllExprNodes(), metas)
+    }
 
     private fun deserializeNAryAdd(
         targetArgs: List<IonValue>,
@@ -680,7 +591,9 @@ private class AstDeserializerImpl(
     private fun deserializeNAryLike(
         targetArgs: List<IonValue>,
         metas: MetaContainer
-    ) = NAry(NAryOp.LIKE, targetArgs.deserializeAllExprNodes(), metas)
+    ) = when (astVersion) {
+        AstVersion.V0 -> NAry(NAryOp.LIKE, targetArgs.deserializeAllExprNodes(), metas)
+    }
 
     private fun deserializeNAryNotBetween(
         targetArgs: List<IonValue>,
@@ -714,7 +627,9 @@ private class AstDeserializerImpl(
     private fun deserializeNAryUnion(
         targetArgs: List<IonValue>,
         metas: MetaContainer
-    ) = NAry(NAryOp.UNION, targetArgs.deserializeAllExprNodes(), metas)
+    ) = when (astVersion) {
+        AstVersion.V0 -> NAry(NAryOp.UNION, targetArgs.deserializeAllExprNodes(), metas)
+    }
 
     private fun deserializeNAryUnionAll(
         targetArgs: List<IonValue>,
@@ -724,7 +639,9 @@ private class AstDeserializerImpl(
     private fun deserializeNAryExcept(
         targetArgs: List<IonValue>,
         metas: MetaContainer
-    ) = NAry(NAryOp.EXCEPT, targetArgs.deserializeAllExprNodes(), metas)
+    ) = when (astVersion) {
+        AstVersion.V0 -> NAry(NAryOp.EXCEPT, targetArgs.deserializeAllExprNodes(), metas)
+    }
 
     private fun deserializeNAryExceptAll(
         targetArgs: List<IonValue>,
@@ -734,12 +651,58 @@ private class AstDeserializerImpl(
     private fun deserializeNAryIntersect(
         targetArgs: List<IonValue>,
         metas: MetaContainer
-    ) = NAry(NAryOp.INTERSECT, targetArgs.deserializeAllExprNodes(), metas)
+    ) = when (astVersion) {
+        AstVersion.V0 -> NAry(NAryOp.INTERSECT, targetArgs.deserializeAllExprNodes(), metas)
+    }
 
     private fun deserializeNAryIntersectAll(
         targetArgs: List<IonValue>,
         metas: MetaContainer
     ) = NAry(NAryOp.INTERSECT_ALL, targetArgs.deserializeAllExprNodes(), metas)
+
+    private fun deserializeCreateV0(
+        targetArgs: List<IonValue>,
+        metas: MetaContainer
+    ): ExprNode {
+        val id = targetArgs[0].stringValue()
+        val target = targetArgs[1].asIonSexp()
+        val args = target.args
+        return when(target.nodeTag) {
+            NodeTag.TABLE -> {
+                val tableName = id ?: err("Table name must be specified")
+                CreateTable(tableName, metas)
+            }
+            NodeTag.INDEX -> {
+                val tableName = args[0].stringValue() ?: err("Table name must be specified")
+                val children = args.drop(1).toListOfIonSexp().map { Pair(it.nodeTag, it) }.toMap()
+                val keys = children[NodeTag.KEYS]?.args?.deserializeAllExprNodes() ?: err("Index definition expects keys")
+                CreateIndex(tableName, keys, metas)
+            }
+            else -> errInvalidContext(target.nodeTag)
+        }
+    }
+
+    private fun deserializeDropTableV0(
+        targetArgs: List<IonValue>,
+        metas: MetaContainer
+    ): DropTable {
+        val tableName = targetArgs[0].stringValue() ?: err("Table name must be specified")
+        return DropTable(tableName, metas)
+    }
+
+    private fun deserializeDropIndexV0(
+        targetArgs: List<IonValue>,
+        metas: MetaContainer
+    ): DropIndex {
+        val tableName = targetArgs[0].stringValue() ?: err("Table name must be specified")
+        val id = deserializeExprNode(targetArgs[1].asIonSexp()) as VariableReference
+        return DropIndex(tableName, id, metas)
+    }
+
+    private fun deserializeIdentifier(targetArgs: List<IonValue>): Pair<String, CaseSensitivity> {
+        return (targetArgs[0].stringValue() ?: err("Identifier deserialization: expecting string value, got ${targetArgs[0]}")) to
+            CaseSensitivity.fromSymbol(targetArgs[1].asIonSexp().tagText)
+    }
 
     private fun deserializeTypedIs(
         targetArgs: List<IonValue>,
@@ -775,7 +738,9 @@ private class AstDeserializerImpl(
 
     private fun deserializeDataManipulation(target: IonSexp, metas: MetaContainer): ExprNode {
         val args = target.args.toListOfIonSexp()
-        val dmlOp = deserializeDataManipulationOperation(args[0])
+        val dmlOp = when(args[0].nodeTag) {
+            else -> deserializeDataManipulationOperation(args[0])
+        }
         val children = args.drop(1).toListOfIonSexp().map { Pair(it.nodeTag, it) }.toMap()
         val from = children[NodeTag.FROM]?.let {
             deserializeFromSource(it.args.first().asIonSexp())
@@ -786,22 +751,36 @@ private class AstDeserializerImpl(
         if (from == null && where != null) {
             err("WHERE cannot be specified without FROM in DML node")
         }
-        return DataManipulation(dmlOp, from, where, metas)
+        return DataManipulation(
+            DmlOpList(ops = dmlOp),
+            from = from,
+            where = where,
+            returning = null, // V0 does not support the RETURNING clause.
+            metas = metas)
     }
 
-    private fun deserializeDataManipulationOperation(target: IonSexp): DataManipulationOperation {
-        val args = target.args.toListOfIonSexp()
+    private fun deserializeDataManipulationOperation(target: IonSexp): List<DataManipulationOperation> {
         return when (target.nodeTag) {
             NodeTag.INSERT -> {
-                InsertOp(deserializeExprNode(args[0]), deserializeExprNode(args[1]))
+                val sexpArgs = target.args.toListOfIonSexp()
+                listOf(InsertOp(deserializeExprNode(sexpArgs[0]), deserializeExprNode(sexpArgs[1])))
             }
             NodeTag.INSERT_VALUE -> {
-                InsertValueOp(deserializeExprNode(args[0]), deserializeExprNode(args[1]),
-                    args.getOrNull(2)?.let { deserializeExprNode(it) })
+                val args = target.args
+                listOf(InsertValueOp(
+                    lvalue = deserializeExprNode(args[0].asIonSexp()),
+                    value = deserializeExprNode(args[1].asIonSexp()),
+                    position = when(astVersion) {
+                        AstVersion.V0 -> args.getOrNull(2)?.let { deserializeExprNode(it.asIonSexp()) }
+                    },
+                    onConflict = null // V0 does not support the ON CONFLICT clause
+                ))
             }
-            NodeTag.SET -> AssignmentOp(deserializeSetAssignments(args))
-            NodeTag.REMOVE -> RemoveOp(deserializeExprNode(args[0]))
-            NodeTag.DELETE -> DeleteOp()
+            NodeTag.SET ->
+                deserializeSetAssignments(target.args.toListOfIonSexp()).map { AssignmentOp(it) }
+
+            NodeTag.REMOVE -> listOf(RemoveOp(deserializeExprNode(target.args[0].asIonSexp())))
+            NodeTag.DELETE -> listOf(DeleteOp())
             else -> errInvalidContext(target.nodeTag)
         }
     }
@@ -821,33 +800,24 @@ private class AstDeserializerImpl(
         val children = target.args.toListOfIonSexp().map { Pair(it.nodeTag, it) }.toMap()
         var setQuantifier = SetQuantifier.ALL
 
-        val projection = when (target.nodeTag) {
-            NodeTag.SELECT -> {
-                val project = children[NodeTag.PROJECT]
-                              ?: children[NodeTag.PROJECT_DISTINCT]
-                              ?: err("select node missing project or project_distinct")
+        val projection = when(astVersion) {
+            AstVersion.V0 -> {
+                when (target.nodeTag) {
+                    NodeTag.PIVOT -> deserializeProjectionPivotV0(children)
+                    NodeTag.SELECT -> {
+                        val project = children[NodeTag.PROJECT]
+                            ?: children[NodeTag.PROJECT_DISTINCT]
+                            ?: err("select node missing project or project_distinct")
 
-                if (project.nodeTag == NodeTag.PROJECT_DISTINCT) {
-                    setQuantifier = SetQuantifier.DISTINCT
-                }
+                        if (project.nodeTag == NodeTag.PROJECT_DISTINCT) {
+                            setQuantifier = SetQuantifier.DISTINCT
+                        }
 
-                val projectChild = project[1].asIonSexp()
-
-                when (projectChild.nodeTag) {
-                    NodeTag.VALUE -> SelectProjectionValue(deserializeExprNode(projectChild.args.first().asIonSexp()))
-                    NodeTag.LIST  -> deserializeSelectListItems(projectChild)
-                    else          -> errInvalidContext(projectChild.nodeTag)
+                        deserializeSelectValueOrListV0(project)
+                    }
+                    else -> errInvalidContext(target.nodeTag)
                 }
             }
-            NodeTag.PIVOT  -> {
-                val member = children[NodeTag.MEMBER] ?: err("(pivot ...) missing member node")
-                val memberArgs = member.args
-                val nameExpr = deserializeExprNode(memberArgs[0].asIonSexp())
-                val valueExpr = deserializeExprNode(memberArgs[1].asIonSexp())
-
-                SelectProjectionPivot(nameExpr, valueExpr)
-            }
-            else           -> errInvalidContext(target.nodeTag)
         }
 
         val from = children[NodeTag.FROM] ?: err("select node missing from")
@@ -861,7 +831,7 @@ private class AstDeserializerImpl(
             val items = bySexp.args.toListOfIonSexp().map { gbiSexp -> deserializeGroupByItem(gbiSexp.asIonSexp()) }
 
             val nameSymbol: SymbolicName? = it.singleWrappedChildWithTagOrNull("name")?.let { nameArg ->
-                deserializeMetaOrTerm(nameArg.asIonSexp()) { target, metas ->
+                deserializeSexpMetaOrTerm(nameArg.asIonSexp()) { target, metas ->
                     SymbolicName(
                         target.args[0].asIonSymbol().stringValue(),
                         metas)
@@ -879,7 +849,6 @@ private class AstDeserializerImpl(
         val havingExprNode = children[NodeTag.HAVING]?.let { deserializeExprNode(it.args.first().asIonSexp()) }
         val limitExprNode = children[NodeTag.LIMIT]?.let { deserializeExprNode(it.args.first().asIonSexp()) }
 
-
         return Select(
             setQuantifier = setQuantifier,
             projection = projection,
@@ -891,9 +860,28 @@ private class AstDeserializerImpl(
             metas = metas)
     }
 
+    private fun deserializeProjectionPivotV0(children: Map<NodeTag, IonSexp>): SelectProjectionPivot {
+        val member = children[NodeTag.MEMBER] ?: err("(pivot ...) missing member node")
+        val memberArgs = member.args
+        val nameExpr = deserializeExprNode(memberArgs[0].asIonSexp())
+        val valueExpr = deserializeExprNode(memberArgs[1].asIonSexp())
+
+        return SelectProjectionPivot(nameExpr, valueExpr)
+    }
+
+    private fun deserializeSelectValueOrListV0(project: IonSexp): SelectProjection {
+        val projectChild = project[1].asIonSexp()
+
+        return when (projectChild.nodeTag) {
+            NodeTag.VALUE -> SelectProjectionValue(deserializeExprNode(projectChild.args.first().asIonSexp()))
+            NodeTag.LIST -> deserializeSelectListItems(projectChild)
+            else -> errInvalidContext(projectChild.nodeTag)
+        }
+    }
+
     private fun deserializeSelectListItems(projectChild: IonSexp): SelectProjectionList {
         val selectListItems = projectChild.args.map { selectListItemSexp ->
-            deserializeMetaOrTerm(selectListItemSexp.asIonSexp()) { itemTarget, metas ->
+            deserializeSexpMetaOrTerm(selectListItemSexp.asIonSexp()) { itemTarget, metas ->
                 when (itemTarget.nodeTag) {
                     NodeTag.AS               -> {
                         val asName = SymbolicName(
@@ -913,13 +901,6 @@ private class AstDeserializerImpl(
                                 deserializeExprNode(itemTarget.args[0].asIonSexp()))
                         }
                     }
-                    NodeTag.PATH_PROJECT_ALL -> {
-                        SelectListItemProjectAll(
-                            // Note:  metas is always empty in this case because the metas are on the child of
-                            // PROJECT_ALL.  This means we should not call .copy() as in other cases.)
-                            deserializeExprNode(itemTarget.args[0].asIonSexp()))
-                    }
-                    NodeTag.STAR             -> SelectListItemStar(metas)
                     else                     -> SelectListItemExpr(deserializeExprNode(selectListItemSexp.asIonSexp()))
                 }
             }
@@ -928,60 +909,56 @@ private class AstDeserializerImpl(
         return SelectProjectionList(selectListItems)
     }
 
-
-    /**
-     * On first invocation all the properties of [variables] will be null
-     *
-     * If we encounter `at`, `as` or `by` we copy [variables], specifying the symbolic name of the binding and recurse.
-     *
-     * If we encounter `unpivot` we deserialize a `FromSourceUnpivot`.
-     *
-     * If we encounter one of the JOIN tags, we attempt to deserialize a `FromSourceJoin`
-     *
-     * If we encounter anything else we attempt to deserialize `FromSourceExpr'
-     */
     private fun deserializeFromSource(
+        termOrFromSource: IonSexp
+    ): FromSource =
+        when(astVersion) {
+            AstVersion.V0 -> deserializeFromSourceV0(termOrFromSource)
+        }
+
+    private fun deserializeFromSourceV0(
         termOrFromSource: IonSexp,
         variables: LetVariables = LetVariables(asName = null, atName = null, byName = null)
-    ): FromSource =
-        deserializeMetaOrTerm(termOrFromSource) { target, metas ->
+    ): FromSource {
+        return deserializeSexpMetaOrTerm(termOrFromSource) { target, metas ->
             val targetArgs = target.args
             when (target.nodeTag) {
                 NodeTag.AT -> {
                     if (variables.atName != null) error("'at' previously encountered in this from source")
-                    deserializeFromSource(
+                    deserializeFromSourceV0(
                         target[2].asIonSexp(),
                         variables.copy(atName = SymbolicName(target.args[0].asIonSymbol().stringValue(), metas)))
                 }
                 NodeTag.AS -> {
                     if (variables.asName != null) error("'as' previously encountered in this from source")
-                    deserializeFromSource(
+                    deserializeFromSourceV0(
                         target[2].asIonSexp(),
                         variables.copy(asName = SymbolicName(target.args[0].asIonSymbol().stringValue(), metas)))
                 }
                 NodeTag.BY -> {
                     if (variables.byName != null) error("'by' previously encountered in this from source")
-                    deserializeFromSource(
+                    deserializeFromSourceV0(
                         target[2].asIonSexp(),
                         variables.copy(byName = SymbolicName(target.args[0].asIonSymbol().stringValue(), metas)))
                 }
-                NodeTag.UNPIVOT    -> {
-                    deserializeFromSourceUnpivot(targetArgs, variables, metas)
+                NodeTag.UNPIVOT -> {
+                    deserializeFromSourceUnpivotV0(targetArgs, variables, metas)
                 }
                 NodeTag.INNER_JOIN,
                 NodeTag.LEFT_JOIN,
                 NodeTag.RIGHT_JOIN,
                 NodeTag.OUTER_JOIN -> {
-                    if(variables.isAnySpecified) error("join from sources cannot have 'at', 'as' or 'by' names.")
-                    deserializeFromSourceJoin(target, targetArgs, metas)
+                    if (variables.isAnySpecified) error("join from sources cannot have 'at', 'as' or 'by' names.")
+                    deserializeFromSourceJoinV0(target, targetArgs, metas)
                 }
                 else -> {
-                    deserializeFromSourceExpr(target, variables, metas)
+                    deserializeFromSourceExprV0(target, variables, metas)
                 }
             }
         }
+    }
 
-    private fun deserializeFromSourceUnpivot(
+    private fun deserializeFromSourceUnpivotV0(
         targetArgs: List<IonValue>,
         variables: LetVariables,
         metas: MetaContainer
@@ -990,7 +967,7 @@ private class AstDeserializerImpl(
         return FromSourceUnpivot(expr, variables, metas)
     }
 
-    private fun deserializeFromSourceJoin(
+    private fun deserializeFromSourceJoinV0(
         target: IonSexp,
         targetArgs: List<IonValue>,
         metas: MetaContainer
@@ -1004,8 +981,8 @@ private class AstDeserializerImpl(
                 "Illegal join operator: ${target.nodeTag.definition.tagText}")
         }
 
-        val leftFromSource = deserializeFromSource(targetArgs[0].asIonSexp())
-        val rightFromSource = deserializeFromSource(targetArgs[1].asIonSexp())
+        val leftFromSource = deserializeFromSourceV0(targetArgs[0].asIonSexp())
+        val rightFromSource = deserializeFromSourceV0(targetArgs[1].asIonSexp())
 
         val (condition, metasMaybeWithImplicitJoin) = when {
             target.arity > 2 -> Pair(deserializeExprNode(targetArgs[2].asIonSexp()), metas)
@@ -1022,7 +999,7 @@ private class AstDeserializerImpl(
             metasMaybeWithImplicitJoin)
     }
 
-    private fun deserializeFromSourceExpr(
+    private fun deserializeFromSourceExprV0(
         target: IonSexp,
         variables: LetVariables,
         metas: MetaContainer
@@ -1033,7 +1010,7 @@ private class AstDeserializerImpl(
     }
 
     private fun deserializeGroupByItem(target: IonSexp): GroupByItem =
-        deserializeMetaOrTerm(target) { innerTarget, metas ->
+        deserializeSexpMetaOrTerm(target) { innerTarget, metas ->
             val innerTargetArgs = innerTarget.args
             when (innerTarget.nodeTag) {
                 NodeTag.AS -> {
@@ -1054,44 +1031,62 @@ private class AstDeserializerImpl(
     private fun deserializeSimpleCase(target: IonSexp, metas: MetaContainer): ExprNode {
         val targetArgs = target.args
         val valueExpr = deserializeExprNode(targetArgs.first().asIonSexp())
-        val clauses = targetArgs.drop(1).toListOfIonSexp()
+        val clauses = targetArgs.drop(1)
 
-        val whenClauses = clauses
-            .filter { it.nodeTag == NodeTag.WHEN }
-            .map {
-                val whenValueExpr = deserializeExprNode(it.args[0].asIonSexp())
-                val thenExpr = deserializeExprNode(it.args[1].asIonSexp())
-                SimpleCaseWhen(whenValueExpr, thenExpr)
+        return when (astVersion) {
+            AstVersion.V0 -> {
+                val clausesIonSexp = clauses.toListOfIonSexp()
+                val whenClauses = clausesIonSexp
+                    .filter { it.nodeTag == NodeTag.WHEN }
+                    .map {
+                        val whenValueExpr = deserializeExprNode(it.args[0].asIonSexp())
+                        val thenExpr = deserializeExprNode(it.args[1].asIonSexp())
+                        SimpleCaseWhen(whenValueExpr, thenExpr)
+                    }
+
+                val elseClause = clausesIonSexp.singleOrNull { it.nodeTag == NodeTag.ELSE }?.let {
+                    deserializeExprNode(it.args.first().asIonSexp())
+                }
+
+                SimpleCase(valueExpr, whenClauses, elseClause, metas)
             }
-
-        val elseClause = clauses.singleOrNull { it.nodeTag == NodeTag.ELSE }?.let {
-            deserializeExprNode(it.args.first().asIonSexp())
         }
-
-        return SimpleCase(valueExpr, whenClauses, elseClause, metas)
     }
 
     private fun deserializeSearchedCase(target: IonSexp, metas: MetaContainer): ExprNode {
         val targetArgs = target.args
-        val clauses = targetArgs.toListOfIonSexp()
 
-        val whenClauses = clauses
-            .filter { it.nodeTag == NodeTag.WHEN }
-            .map {
-                val whenConditionExpr = deserializeExprNode(it.args[0].asIonSexp())
-                val thenExpr = deserializeExprNode(it.args[1].asIonSexp())
-                SearchedCaseWhen(whenConditionExpr, thenExpr)
+        return when (astVersion) {
+            AstVersion.V0 -> {
+                val clauses = targetArgs.toListOfIonSexp()
+                val whenClauses = clauses
+                    .filter { it.nodeTag == NodeTag.WHEN }
+                    .map {
+                        val whenConditionExpr = deserializeExprNode(it.args[0].asIonSexp())
+                        val thenExpr = deserializeExprNode(it.args[1].asIonSexp())
+                        SearchedCaseWhen(whenConditionExpr, thenExpr)
+                    }
+
+                val elseClause = clauses.singleOrNull { it.nodeTag == NodeTag.ELSE }?.let {
+                    deserializeExprNode(it.args.first().asIonSexp())
+                }
+
+                SearchedCase(whenClauses, elseClause, metas)
             }
-
-        val elseClause = clauses.singleOrNull { it.nodeTag == NodeTag.ELSE }?.let {
-            deserializeExprNode(it.args.first().asIonSexp())
         }
+    }
 
-        return SearchedCase(whenClauses, elseClause, metas)
+    private fun deserializeExprPair(expr_pair: IonSexp): Pair<ExprNode, ExprNode> {
+        return deserializeExprNode(expr_pair.args[0].asIonSexp()) to
+            deserializeExprNode(expr_pair.args[1].asIonSexp())
+    }
+
+    private fun deserializeExprPairList(exprPairList: IonSexp): List<Pair<ExprNode, ExprNode>> {
+        return exprPairList.args.toListOfIonSexp().map { deserializeExprPair(it) }
     }
 
     private fun deserializePath(pathSexp: IonSexp) =
-        deserializeMetaOrTerm(pathSexp) { target, metas ->
+        deserializeSexpMetaOrTerm(pathSexp) { target, metas ->
             val root = deserializeExprNode(target.args[0].asIonSexp())
             val componentSexps = pathSexp.args.drop(1).toListOfIonSexp()
             val pathComponents = deserializePathComponents(componentSexps)
@@ -1100,25 +1095,25 @@ private class AstDeserializerImpl(
 
 
     private fun deserializePathComponents(componentSexps: List<IonSexp>): List<PathComponent> =
-        when (astVersion) {
+        when(astVersion) {
             AstVersion.V0 -> componentSexps.map { componentSexp ->
                 val (targetComponent, caseSensitivity) = when (componentSexp.nodeTag) {
                     NodeTag.CASE_INSENSITIVE -> Pair(componentSexp.args[0].asIonSexp(), CaseSensitivity.INSENSITIVE)
-                    NodeTag.CASE_SENSITIVE   -> Pair(componentSexp.args[0].asIonSexp(), CaseSensitivity.SENSITIVE)
-                    else                     -> Pair(componentSexp, CaseSensitivity.SENSITIVE)
+                    NodeTag.CASE_SENSITIVE -> Pair(componentSexp.args[0].asIonSexp(), CaseSensitivity.SENSITIVE)
+                    else -> Pair(componentSexp, CaseSensitivity.SENSITIVE)
                 }
-                deserializeMetaOrTerm(targetComponent) { target, metas ->
+                deserializeSexpMetaOrTerm(targetComponent) { target, metas ->
                     // Note:  not sure why, but without this assignment (to variable 'pc')
                     // the Kotlin compiler believes this `when` expression has a type of Any...
                     // It does not appear to be smart enough to realize that PathComponentWildCard
                     // and PathComponentUnpivot have the same base class.
                     val pc: PathComponent = when (target.nodeTag) {
-                        NodeTag.STAR, NodeTag.NARY_MUL -> {
+                        NodeTag.NARY_MUL -> {
                             when (target.arity) {
-                                0    -> PathComponentWildcard(metas)
-                                1    -> {
+                                0 -> PathComponentWildcard(metas)
+                                1 -> {
                                     if (target.args[0].asIonSymbol().stringValue() != "unpivot") {
-                                        err("Invalid argument to '(star)' or '(*)' in path component. Expected no argument or 'unpivot'")
+                                        err("Invalid argument to '(*)' in path component. Expected no argument or 'unpivot'")
                                     }
                                     PathComponentUnpivot(metas)
                                 }
@@ -1126,7 +1121,7 @@ private class AstDeserializerImpl(
                                     "invalid arity for (star) or (*) (this should have been caught earlier)")
                             }
                         }
-                        else                           -> {
+                        else -> {
                             val exprNode = deserializeExprNode(target).copy(metas)
                             PathComponentExpr(exprNode, caseSensitivity)
                         }
@@ -1134,61 +1129,24 @@ private class AstDeserializerImpl(
                     pc
                 }
             }
-            AstVersion.V1 -> {
-                componentSexps.map { pathCompnent ->
-                    when (pathCompnent.nodeTag) {
-                        NodeTag.PATH_ELEMENT -> {
-                            deserializeMetaOrTerm(pathCompnent.args[0].asIonSexp()) { targetComponent, metas ->
-                                when (targetComponent.nodeTag) {
-                                    NodeTag.STAR -> {
-                                        // Note:  not sure why, but without this assignment (to variable 'pc')
-                                        // the Kotlin compiler believes this `when` expression has a type of Any...
-                                        // It does not appear to be smart enough to realize that PathComponentWildCard
-                                        // and PathComponentUnpivot have the same base class.
-                                        val pc: PathComponent = when (targetComponent.arity) {
-                                            0    -> PathComponentWildcard(metas)
-                                            1    -> {
-                                                if (targetComponent.args[0].asIonSymbol().stringValue() != "unpivot") {
-                                                    err("Invalid argument to '*' in path component. Expected no argument or 'unpivot'")
-                                                }
-                                                PathComponentUnpivot(metas)
-
-                                            }
-                                            else -> throw IllegalStateException(
-                                                "invalid arity for ${NodeTag.STAR.definition.tagText} (this should have been caught earlier)")
-                                        }
-                                        pc
-                                    }
-                                    else                           -> {
-                                        //This ExprNode's metas were already consumed above... need to add them back to the ExprNode
-                                        val exprNode = deserializeExprNode(targetComponent).copy(metas)
-
-                                        val caseSensitivity = when (pathCompnent.arity) {
-                                            1    -> CaseSensitivity.INSENSITIVE //When not specified, this is the default
-                                            2    -> {
-                                                val marker = pathCompnent.args[1].asIonSymbol().stringValue()
-                                                when (marker) {
-                                                    "case_sensitive"   -> CaseSensitivity.SENSITIVE
-                                                    "case_insensitive" -> CaseSensitivity.INSENSITIVE
-                                                    else               -> err("Expected 'case_sensitive' or 'case_insensitive', found ${marker}")
-                                                }
-                                            }
-                                            else -> throw IllegalStateException(
-                                                "invalid arity for ${NodeTag.PATH_ELEMENT.definition.tagText} (this should have been caught earlier)")
-                                        }
-                                        PathComponentExpr(exprNode, caseSensitivity)
-                                    }
-                                }
-                            }
-                        }
-                        else                 -> errInvalidContext(pathCompnent.nodeTag)
-                    }
-                }
-            }
         }
 
-    private fun deserializeDataType(dataTypeSexp: IonValue): DataType =
-        deserializeMetaOrTerm(dataTypeSexp.asIonSexp()) { target, metas ->
+    private fun deserializePathExpr(pathExpr: IonSexp): PathComponentExpr {
+        val rootWithMeta = pathExpr.args[0].asIonSexp()
+        val caseSensitivity = CaseSensitivity.fromSymbol(pathExpr.args[1].asIonSexp().tagText)
+        return deserializeSexpMetaOrTerm(rootWithMeta) { root, metas ->
+            val rootExprNode = deserializeExprNode(root).copy(metas)
+            PathComponentExpr(rootExprNode, caseSensitivity)
+        }
+    }
+
+    private fun deserializeDataType(dataTypeSexp: IonValue) =
+        when (astVersion) {
+            AstVersion.V0 -> deserializeDataTypeV0(dataTypeSexp)
+        }
+
+    private fun deserializeDataTypeV0(dataTypeSexp: IonValue): DataType =
+        deserializeSexpMetaOrTerm(dataTypeSexp.asIonSexp()) { target, metas ->
             val nodeTag = target.nodeTag
             when (nodeTag) {
                 NodeTag.TYPE -> {
@@ -1213,27 +1171,33 @@ private class AstDeserializerImpl(
      * it is unwrapped before performing the comparison.
      */
     private fun IonSexp.singleWrappedChildWithTagOrNull(tagName: String): IonValue? =
-        when(astVersion) {
-            AstVersion.V0 ->
-                this.args.map { it.asIonSexp() }.singleOrNull {
-                    val tagText = when(it.tagText) {
-                        "meta" -> it.args[0].asIonSexp().tagText
-                        else -> it.tagText
-                    }
-                    tagText == tagName
-                }
-
-            AstVersion.V1 ->
-                this.args.map { it.asIonSexp() }.singleOrNull {
-                    val tagText = when(it.tagText) {
-                        "term" -> it.singleArgWithTag("exp").asIonSexp().args[0].asIonSexp().tagText
-                        else -> it.tagText
-                    }
-                    tagText == tagName
-                }
-
+        this.args.map { it.asIonSexp() }.singleOrNull {
+            val tagText = when(it.tagText) {
+                "meta" -> it.args[0].asIonSexp().tagText
+                else -> it.tagText
+            }
+            tagText == tagName
         }
 
+    private fun IonValue.termToSymbolicName(): SymbolicName? {
+        return when {
+            isNullValue -> null
+            this is IonSymbol -> SymbolicName(this.stringValue(), emptyMetaContainer)
+            this is IonSexp -> deserializeIonValueMetaOrTerm(this.asIonSexp()) { target, metas ->
+                SymbolicName(target.asIonSymbol().stringValue(), metas)
+            }
+            else ->
+                error("Can't convert ${this.type} to a symbolic name")
+        }
+    }
+    private fun IonValue.toSymbolicName(metas: MetaContainer): SymbolicName? {
+        return when {
+            isNullValue -> null
+            else -> {
+                SymbolicName(asIonSymbol().stringValue(), metas)
+            }
+        }
+    }
 }
 
 private fun err(message: String): Nothing =

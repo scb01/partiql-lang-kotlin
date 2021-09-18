@@ -21,7 +21,6 @@ import org.junit.*
 import org.junit.Assert.*
 import org.partiql.lang.*
 import java.io.*
-import java.lang.StringBuilder
 import java.util.concurrent.*
 import kotlin.concurrent.*
 
@@ -79,6 +78,8 @@ private class ReplTester(bindings: Bindings<ExprValue> = Bindings.empty()) {
     }
 
     private val repl = Repl(valueFactory, input, output, parser, compiler, bindings, zeroTimer)
+
+    val partiqlVersionAndHash = repl.retrievePartiQLVersionAndHash()
 
     private val actualReplPrompt = StringBuilder()
 
@@ -147,18 +148,35 @@ private class ReplTester(bindings: Bindings<ExprValue> = Bindings.empty()) {
 
 }
 
+@Ignore("https://github.com/partiql/partiql-lang-kotlin/issues/266")
 class ReplTest {
+    private val partiqlVersionAndHash = ReplTester().partiqlVersionAndHash
 
     @Test
     fun singleQuery() {
         ReplTester().assertReplPrompt("""
             #Welcome to the PartiQL REPL!
+            #Using version: $partiqlVersionAndHash
             #PartiQL> 1+1
             #   | 
             #===' 
             #2
             #--- 
-            #OK! (0 ms)
+            #OK!
+            #PartiQL> 
+        """.trimMargin("#"))
+    }
+
+    @Test
+    fun querySemiColon() {
+        ReplTester().assertReplPrompt("""
+            #Welcome to the PartiQL REPL!
+            #Using version: $partiqlVersionAndHash
+            #PartiQL> 1+1;
+            #===' 
+            #2
+            #--- 
+            #OK!
             #PartiQL> 
         """.trimMargin("#"))
     }
@@ -167,18 +185,19 @@ class ReplTest {
     fun multipleQuery() {
         ReplTester().assertReplPrompt("""
             #Welcome to the PartiQL REPL!
+            #Using version: $partiqlVersionAndHash
             #PartiQL> 1 + 1
             #   | 
             #===' 
             #2
             #--- 
-            #OK! (0 ms)
+            #OK!
             #PartiQL> 2 + 2
             #   | 
             #===' 
             #4
             #--- 
-            #OK! (0 ms)
+            #OK!
             #PartiQL> 
         """.trimMargin("#"))
 
@@ -188,122 +207,27 @@ class ReplTest {
     fun astWithoutMetas() {
         ReplTester().assertReplPrompt("""
             #Welcome to the PartiQL REPL!
+            #Using version: $partiqlVersionAndHash
             #PartiQL> 1 + 1
             #   | !!
             #===' 
             #
             #(
-            #  ast
+            #  query
             #  (
-            #    version
-            #    1
-            #  )
-            #  (
-            #    root
+            #    plus
             #    (
-            #      +
-            #      (
-            #        lit
-            #        1
-            #      )
-            #      (
-            #        lit
-            #        1
-            #      )
+            #      lit
+            #      1
+            #    )
+            #    (
+            #      lit
+            #      1
             #    )
             #  )
             #)
             #--- 
-            #OK! (0 ms)
-            #PartiQL> 
-        """.trimMargin("#"))
-    }
-
-    @Test
-    fun astWithMetas() {
-        ReplTester().assertReplPrompt("""
-            #Welcome to the PartiQL REPL!
-            #PartiQL> 1 + 1
-            #   | !?
-            #===' 
-            #
-            #(
-            #  ast
-            #  (
-            #    version
-            #    1
-            #  )
-            #  (
-            #    root
-            #    (
-            #      term
-            #      (
-            #        exp
-            #        (
-            #          +
-            #          (
-            #            term
-            #            (
-            #              exp
-            #              (
-            #                lit
-            #                1
-            #              )
-            #            )
-            #            (
-            #              meta
-            #              (
-            #                ${'$'}source_location
-            #                (
-            #                  {
-            #                    line_num:1,
-            #                    char_offset:1
-            #                  }
-            #                )
-            #              )
-            #            )
-            #          )
-            #          (
-            #            term
-            #            (
-            #              exp
-            #              (
-            #                lit
-            #                1
-            #              )
-            #            )
-            #            (
-            #              meta
-            #              (
-            #                ${'$'}source_location
-            #                (
-            #                  {
-            #                    line_num:1,
-            #                    char_offset:5
-            #                  }
-            #                )
-            #              )
-            #            )
-            #          )
-            #        )
-            #      )
-            #      (
-            #        meta
-            #        (
-            #          ${'$'}source_location
-            #          (
-            #            {
-            #              line_num:1,
-            #              char_offset:3
-            #            }
-            #          )
-            #        )
-            #      )
-            #    )
-            #  )
-            #)
-            #--- 
-            #OK! (0 ms)
+            #OK!
             #PartiQL> 
         """.trimMargin("#"))
     }
@@ -312,6 +236,7 @@ class ReplTest {
     fun addToGlobalEnvAndQuery() {
         ReplTester().assertReplPrompt("""
             #Welcome to the PartiQL REPL!
+            #Using version: $partiqlVersionAndHash
             #PartiQL> !add_to_global_env {'myTable': <<{'a':1}, {'a': 2}>>}
             #   | 
             #===' 
@@ -326,7 +251,7 @@ class ReplTest {
             #  >>
             #}
             #--- 
-            #OK! (0 ms)
+            #OK!
             #PartiQL> SELECT * FROM myTable
             #   | 
             #===' 
@@ -339,7 +264,7 @@ class ReplTest {
             #  }
             #>>
             #--- 
-            #OK! (0 ms)
+            #OK!
             #PartiQL> 
         """.trimMargin("#"))
     }
@@ -354,6 +279,7 @@ class ReplTest {
 
         ReplTester(initialBindings).assertReplPrompt("""
             #Welcome to the PartiQL REPL!
+            #Using version: $partiqlVersionAndHash
             #PartiQL> !global_env
             #   | 
             #===' 
@@ -365,7 +291,7 @@ class ReplTest {
             #  ]
             #}
             #--- 
-            #OK! (0 ms)
+            #OK!
             #PartiQL> 
         """.trimMargin("#"))
     }
@@ -374,12 +300,13 @@ class ReplTest {
     fun dumpEmptyInitialEnv() {
         ReplTester().assertReplPrompt("""
             #Welcome to the PartiQL REPL!
+            #Using version: $partiqlVersionAndHash
             #PartiQL> !global_env
             #   | 
             #===' 
             #{}
             #--- 
-            #OK! (0 ms)
+            #OK!
             #PartiQL> 
         """.trimMargin("#"))
     }
@@ -388,6 +315,7 @@ class ReplTest {
     fun dumpEnvAfterAltering() {
         ReplTester().assertReplPrompt("""
             #Welcome to the PartiQL REPL!
+            #Using version: $partiqlVersionAndHash
             #PartiQL> !add_to_global_env {'myTable': <<{'a':1}, {'a': 2}>>}
             #   | 
             #===' 
@@ -402,7 +330,7 @@ class ReplTest {
             #  >>
             #}
             #--- 
-            #OK! (0 ms)
+            #OK!
             #PartiQL> !global_env
             #   | 
             #===' 
@@ -417,7 +345,7 @@ class ReplTest {
             #  >>
             #}
             #--- 
-            #OK! (0 ms)
+            #OK!
             #PartiQL> 
         """.trimMargin("#"))
     }
@@ -426,13 +354,14 @@ class ReplTest {
     fun listCommands() {
         ReplTester().assertReplPrompt("""
             #Welcome to the PartiQL REPL!
+            #Using version: $partiqlVersionAndHash
             #PartiQL> !list_commands
             #   | 
             #
             #!add_to_global_env: adds a value to the global environment
             #!global_env: displays the current global environment
             #!list_commands: print this message
-            #OK! (0 ms)
+            #OK!
             #PartiQL> 
         """.trimMargin("#"))
     }

@@ -1,7 +1,7 @@
 # Introduction
 
-**Note that this document is [subject to change](https://github.com/partiql/partiql-lang-kotlin/issues/43) as required by the use 
-of `ktlint`.**
+**Note that this document is [subject to change](https://github.com/partiql/partiql-lang-kotlin/issues/43) as required
+ by the use of `ktlint`.**
 
 This document serves as style guide and includes code conventions and idioms for [Kotlin](https://kotlinlang.org/) 
 in the PartiQL project.
@@ -12,13 +12,17 @@ a base. If it's not specified here use that as a reference.
 If you use Intellij you can import the code-style settings [here](./intellij_code_style.xml)  
 
 # Packages
+
 Maintain directory structure and package names consistent, e.g. foo.bar should be in foo/bar folder. Keeping both 
 consistent makes easier to find any resource, e.g. class or function, that is part of the package and naturally groups 
 them all.
 
 # Imports
 
-Use `*` imports to avoid polluting the import list and alphabetical order to simplify git merges.
+~~Use `*` imports to avoid polluting the import list and alphabetical order to simplify git merges.~~
+
+Do not use `*` imports any longer.  When modifying a file, if any `*` imports exist, replace them with single
+class imports. 
 
 # Control Flow
 
@@ -82,6 +86,82 @@ fun calculateArea(shape: Shape): Double {
 }
 ```
 
+# Avoid Mutable Data Structures
+
+## Bad
+
+```Kotlin
+val sources = ArrayList<CompiledLetSource>() // [sources] is mutable!
+letSource.bindings.forEach {
+    sources.add(CompiledLetSource(name = it.name.name, thunk = compileExprNode(it.expr)))
+}
+```    
+
+## Good
+
+```Kotlin
+val sources = letSource.bindings.map {
+    CompiledLetSource(name = it.name.name, thunk = compileExprNode(it.expr)))
+}
+```
+
+This is equivalent to the prior example but:
+
+- Is less verbose
+- Is clearer, easier to read and reason about.
+
+## Exceptions
+
+In rare cases the use of mutable data strucutres is simpler or more performant than immutable.
+In such scenarios, the use of mutable data structures is allowed.
+
+# Avoid use of `!!`
+
+Where possible the use of `!!` should be avoided.  Most of the time this is only impossible when 
+dealing with values returned from Java code.  If a variable is nullable, we can rely on 
+[Kotlin's null safety](https://kotlinlang.org/docs/reference/null-safety.html#checking-for-null-in-conditions).
+
+#### Good
+
+```Kotlin
+val foo: Widget? = ...
+if(foo != null) {
+   // Kotlin knows that foo is guaranteed to not be null here and will not complain
+   foo.activate()
+}
+
+// Kotlin knows that foo *might* be null here and will issue a compile error!
+foo.activate() 
+```
+
+#### Bad
+
+```Kotlin
+val foo: Widget? = ...
+// Foo is not guaranteed to be non-null!
+foo!!.activate()
+```
+
+### Exceptions
+
+When it is impossible to avoid use of `!!`, use of `!!` should occur as early as possible in
+the given code path.
+
+#### Good
+
+```Kotlin
+val foo = SomeJavaClass.someFunction()!!  //<--the earliest time `!!` can be used
+foo.dance()
+```
+
+#### Bad
+
+```Kotlin
+val foo = SomeJavaClass.someFunction()
+foo!!.dance()
+```
+
+
 # Kotlin Extension Functions
 
 We should limit the scope of helper extensions to avoid polluting clients and avoid clashes.
@@ -109,7 +189,7 @@ inside that package for an example.
 Name big lambda expressions by transforming them in `val` or functions. example:
 
 ```kotlin
-// bad: hard to tell what what it's being filtered
+// bad: hard to tell what what is being filtered
 val numbers = IntRange(1, 100).filter {
     if (it <= 0) false
     else if (it <= 3) true

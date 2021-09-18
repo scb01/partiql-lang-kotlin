@@ -15,20 +15,21 @@
 package org.partiql.cli
 
 import com.amazon.ion.system.*
+import com.amazon.ionelement.api.toIonValue
 import org.partiql.cli.ReplState.*
 import org.partiql.lang.*
-import org.partiql.lang.ast.*
 import org.partiql.lang.eval.*
 import org.partiql.lang.syntax.*
 import org.partiql.lang.util.*
 import java.io.*
+import java.util.Properties
 import java.util.concurrent.*
 
 internal const val PROMPT_1 = "PartiQL> "
 internal const val PROMPT_2 = "   | "
 internal const val BAR_1 = "===' "
 internal const val BAR_2 = "--- "
-internal const val WELCOME_MSG = "Welcome to the PartiQL REPL!" // TODO: extract version from gradle.build and append to message
+internal const val WELCOME_MSG = "Welcome to the PartiQL REPL!"
 
 private enum class ReplState {
     /** Initial state, first state as soon as you start the REPL */
@@ -40,11 +41,11 @@ private enum class ReplState {
     /** Reading a PartiQL query. Transitions to execute when one of the execution tokens is found. */
     READ_PARTIQL,
 
+    /** Read a trailing semi-colon. Add the current line to the buffer and transition to execute. */
+    LAST_PARTIQL_LINE,
+
     /** Ready to execute a PartiQL query. */
     EXECUTE_PARTIQL,
-
-    /** Ready to parse a PartiQL query and display the full AST. */
-    PARSE_PARTIQL,
 
     /** Ready to parse a PartiQL query and display AST with meta nodes filtered out. */
     PARSE_PARTIQL_WITH_FILTER,
@@ -190,6 +191,17 @@ internal class Repl(private val valueFactory: ExprValueFactory,
         outputWriter.write("\n")
     }
 
+    fun retrievePartiQLVersionAndHash(): String {
+        val properties = Properties()
+        properties.load(this.javaClass.getResourceAsStream("/partiql.properties"))
+        return "${properties.getProperty("version")}-${properties.getProperty("commit")}"
+    }
+
+    private fun printVersionNumber() {
+        outputWriter.write("Using version: ${retrievePartiQLVersionAndHash()}")
+        outputWriter.write("\n")
+    }
+
     private fun printPrompt() {
         when {
             buffer.isEmpty() -> outputWriter.write(PROMPT_1)
@@ -208,22 +220,20 @@ internal class Repl(private val valueFactory: ExprValueFactory,
             val source = buffer.toString().trim()
             buffer.setLength(0)
 
-            val totalMs = timer.timeIt {
-                val result = f(source)
-                if (result != null) {
-                    outputWriter.write(BAR_1)
-                    outputWriter.write("\n")
+            val result = f(source)
+            if (result != null) {
+                outputWriter.write(BAR_1)
+                outputWriter.write("\n")
 
-                    formatter.formatTo(result, outputWriter)
-                    outputWriter.write("\n")
+                formatter.formatTo(result, outputWriter)
+                outputWriter.write("\n")
 
-                    outputWriter.write(BAR_2)
-                    outputWriter.write("\n")
+                outputWriter.write(BAR_2)
+                outputWriter.write("\n")
 
-                    previousResult = result
-                }
+                previousResult = result
             }
-            outputWriter.write("OK! ($totalMs ms)")
+            outputWriter.write("OK!")
             outputWriter.write("\n")
             outputWriter.flush()
         }
@@ -252,20 +262,11 @@ internal class Repl(private val valueFactory: ExprValueFactory,
         }
     }
 
-    private fun parsePartiQL(): ReplState = executeTemplate(astPrettyPrinter) { source ->
-        if (source != "") {
-            val serializedAst = AstSerializer.serialize(parser.parseExprNode(source), AstVersion.V1, valueFactory.ion)
-            valueFactory.newFromIonValue(serializedAst)
-        }
-        else {
-            null
-        }
-    }
-
     private fun parsePartiQLWithFilters(): ReplState = executeTemplate(astPrettyPrinter) { source ->
         if (source != "") {
-            val serializedAst = AstSerializer.serialize(parser.parseExprNode(source), AstVersion.V1, valueFactory.ion)
-            valueFactory.newFromIonValue(serializedAst.filterTermNodes())
+            val astStatementSexp = parser.parseAstStatement(source).toIonElement()
+            val astStatmentIonValue = astStatementSexp.asAnyElement().toIonValue(valueFactory.ion)
+            valueFactory.newFromIonValue(astStatmentIonValue)
         }
         else {
             null
@@ -277,28 +278,36 @@ internal class Repl(private val valueFactory: ExprValueFactory,
             state = when (state) {
                 INIT                      -> {
                     printWelcomeMessage()
+                    printVersionNumber()
                     READY
                 }
+
                 READY                     -> {
                     line = readLine()
                     when {
-                        line == null                               -> FINAL
-                        arrayOf("!!", "!?", "").any { it == line } -> EXECUTE_PARTIQL
-                        line!!.startsWith("!")                     -> READ_REPL_COMMAND
-                        else                                       -> READ_PARTIQL
+                        line == null                         -> FINAL
+                        arrayOf("!!", "").any { it == line } -> EXECUTE_PARTIQL
+                        line!!.startsWith("!")               -> READ_REPL_COMMAND
+                        line!!.endsWith(";")                 -> LAST_PARTIQL_LINE
+                        else                                 -> READ_PARTIQL
                     }
                 }
 
                 READ_PARTIQL              -> {
                     buffer.appendln(line)
                     line = readLine()
-                    when (line) {
-                        null -> FINAL
-                        ""   -> EXECUTE_PARTIQL
-                        "!!" -> PARSE_PARTIQL_WITH_FILTER
-                        "!?" -> PARSE_PARTIQL
-                        else -> READ_PARTIQL
+                    when {
+                        line == null         -> FINAL
+                        line == ""           -> EXECUTE_PARTIQL
+                        line!!.endsWith(";") -> LAST_PARTIQL_LINE
+                        line == "!!"         -> PARSE_PARTIQL_WITH_FILTER
+                        else                 -> READ_PARTIQL
                     }
+                }
+
+                LAST_PARTIQL_LINE         -> {
+                    buffer.appendln(line)
+                    EXECUTE_PARTIQL
                 }
 
                 READ_REPL_COMMAND         -> {
@@ -312,7 +321,6 @@ internal class Repl(private val valueFactory: ExprValueFactory,
                 }
 
                 EXECUTE_PARTIQL           -> executePartiQL()
-                PARSE_PARTIQL             -> parsePartiQL()
                 PARSE_PARTIQL_WITH_FILTER -> parsePartiQLWithFilters()
                 EXECUTE_REPL_COMMAND      -> executeReplCommand()
 

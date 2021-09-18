@@ -14,8 +14,13 @@
 
 package org.partiql.lang.eval
 
+import com.amazon.ion.system.IonSystemBuilder
 import org.junit.Ignore
 import org.junit.Test
+import org.junit.jupiter.api.assertThrows
+import org.partiql.lang.CompilerPipeline
+import org.partiql.lang.errors.ErrorCode
+import org.partiql.lang.errors.Property
 import org.partiql.lang.syntax.ParserException
 
 class EvaluatingCompilerTests : EvaluatorTestBase() {
@@ -1322,7 +1327,7 @@ class EvaluatingCompilerTests : EvaluatorTestBase() {
         """15.0""",
         globalListOfNumbers.toSession()
     )
-    
+
     @Test
     fun topLevelAllSum() = assertEval(
         """SUM(ALL numbers)""",
@@ -1355,7 +1360,7 @@ class EvaluatingCompilerTests : EvaluatorTestBase() {
         """MIN(ALL numbers)""",
         """1""",
         globalListOfNumbers.toSession()
-    ) 
+    )
 
     @Test
     fun topLevelMax() = assertEval(
@@ -1363,7 +1368,7 @@ class EvaluatingCompilerTests : EvaluatorTestBase() {
         """5d0""",
         globalListOfNumbers.toSession()
     )
-    
+
     @Test
     fun topLevelDistinctMax() = assertEval(
         """MAX(DISTINCT numbers)""",
@@ -1492,6 +1497,26 @@ class EvaluatingCompilerTests : EvaluatorTestBase() {
     }
 
     @Test
+    fun projectionIterationBehaviorUnfiltered_select_list() =
+        assertEvalExprValue(
+            source = "select a from <<{'a': MISSING}>>",
+            expected = "<<{'a': MISSING}>>",
+            compileOptions = CompileOptions.build {
+                projectionIteration(ProjectionIterationBehavior.UNFILTERED)
+            }
+        )
+
+    @Test
+    fun projectionIterationBehaviorUnfiltered_select_star() =
+        assertEvalExprValue(
+            source = "select * from <<{'a': MISSING}>>",
+            expected = "<<{'a': MISSING}>>",
+            compileOptions = CompileOptions.build {
+                projectionIteration(ProjectionIterationBehavior.UNFILTERED)
+            }
+        )
+
+    @Test
     fun undefinedQualifiedVariableWithUndefinedVariableBehaviorError() {
         // Demonstrates that UndefinedVariableBehavior.ERROR does not affect qualified field names.
         assertEval("SELECT t.a, t.undefined_field FROM `[{a:100, b:200}]` as t", "[{a:100}]",
@@ -1560,14 +1585,14 @@ class EvaluatingCompilerTests : EvaluatorTestBase() {
 
     @Test
     fun selectDistinctSubQuery() = assertEval(
-        """SELECT * FROM (SELECT DISTINCT t.a FROM `[{a: 1}, {a: 2}, {a: 1}]` t)""", 
+        """SELECT * FROM (SELECT DISTINCT t.a FROM `[{a: 1}, {a: 2}, {a: 1}]` t)""",
         """[{a:1},{a:2}]""")
 
     @Test
     fun selectDistinctWithSubQuery() = assertEval(
         """SELECT DISTINCT * FROM (SELECT t.a FROM `[{a: 1}, {a: 2}, {a: 1}]` t)""",
         """[{a:1},{a:2}]""")
-    
+
     @Test
     fun selectDistinctAggregationWithGroupBy() = assertEval(
         """
@@ -1702,4 +1727,97 @@ class EvaluatingCompilerTests : EvaluatorTestBase() {
         """
           [{c:"11"},{c:"22"}]
         """)
+
+    @Test
+    fun projectOfListOfList() = assertEvalExprValue("SELECT * FROM [ [1,2] ] as foo", "<<{'_1': [1,2] }>>")
+
+    @Test
+    fun projectOfBagOfBag() = assertEvalExprValue("SELECT * FROM << <<1,2>> >> as foo", "<<{'_1': <<1,2>> }>>")
+
+    @Test
+    fun projectOfListOfBag() = assertEvalExprValue("SELECT * FROM [ <<1,2>> ] as foo", "<<{'_1': <<1,2>> }>>")
+
+    @Test
+    fun projectOfBagOfList() = assertEvalExprValue("SELECT * FROM << [1,2] >> as foo", "<<{'_1': [1,2] }>>")
+
+    @Test
+    fun projectOfSexp() = assertEvalExprValue("SELECT * FROM `(1 2)` as foo", "<<{'_1': `(1 2)` }>>")
+
+    @Test
+    fun projectOfUnpivotPath() = assertEvalExprValue("SELECT * FROM <<{'name': 'Marrowstone Brewing'}, {'name': 'Tesla'}>>.*",
+        "<<{'_1': <<{'name': 'Marrowstone Brewing'}, {'name': 'Tesla'}>>}>>")
+
+    /**
+     * Regression test for https://github.com/partiql/partiql-lang-kotlin/issues/314
+     *
+     * Ensures that date parts can be used as variable names.
+     */
+    @Test
+    fun datePartsAsVariableNames() =
+        assertEvalExprValue(
+            """
+            SELECT VALUE [year, month, day, hour, minute, second]
+            FROM 1968 AS year, 4 AS month, 3 as day, 12 as hour, 31 as minute, 59 as second 
+            """,
+            "<<[1968, 4, 3, 12, 31, 59]>>")
+
+    /**
+     * Regression test for https://github.com/partiql/partiql-lang-kotlin/issues/121
+     *
+     * Ensures that date parts can be used as struct field names.
+     */
+    @Test
+    fun datePartsAsStructFieldNames() =
+        assertEvalExprValue(
+            """
+            SELECT VALUE [x.year, x.month, x.day, x.hour, x.minute, x.second]
+            FROM << { 'year': 1968, 'month': 4, 'day': 3, 'hour': 12, 'minute': 31, 'second': 59 }>> AS x
+            """,
+            "<<[1968, 4, 3, 12, 31, 59]>>")
+
+    @Test
+    fun aggregateInSubqueryOfSelect() =
+        assertEvalExprValue(
+            """
+            SELECT foo.cnt
+            FROM
+                (SELECT COUNT(*) AS cnt 
+                FROM [1, 2, 3])
+            AS foo
+            """,
+            "<< { 'cnt': 3 } >>")
+
+    @Test
+    fun aggregateInSubqueryOfSelectValue() =
+        assertEvalExprValue(
+            """
+            SELECT VALUE foo.cnt
+            FROM
+                (SELECT COUNT(*) AS cnt 
+                FROM [1, 2, 3])
+            AS foo
+            """,
+            "<< 3 >>")
+
+    @Test
+    fun aggregateWithAliasingInSubqueryOfSelectValue() =
+        assertEvalExprValue(
+            """
+            SELECT VALUE foo.cnt
+            FROM
+                (SELECT COUNT(baz.bar) AS cnt 
+                FROM << { 'bar': 1 }, { 'bar': 2 } >> AS baz)
+            AS foo
+            """,
+            "<< 2 >>")
+
+    @Test
+    fun orderByThrowsCorrectException() {
+        val ex = assertThrows<EvaluationException>("ORDER BY should throw unimplemented exception") {
+            eval("SELECT 1 FROM <<>> ORDER BY x")
+        }
+        assertEquals(ErrorCode.EVALUATOR_FEATURE_NOT_SUPPORTED_YET, ex.errorCode)
+        assertEquals("ORDER BY", ex.errorContext!![Property.FEATURE_NAME]!!.toString())
+    }
+
 }

@@ -59,7 +59,7 @@ class EvaluatingCompilerExceptionsTest : EvaluatorTestBase() {
     }
 
     @Test
-    fun selectListNestedAggregateCall() = assertThrows("The arguments of an aggregate function cannot contain aggregate functions", NodeMetadata(1, 16)) {
+    fun selectListNestedAggregateCall() = assertThrows("The arguments of an aggregate function cannot contain aggregate functions", NodeMetadata(1, 12)) {
         voidEval("""SELECT SUM(AVG(n)) FROM <<numbers, numbers>> AS n""")
     }
 
@@ -119,13 +119,13 @@ class EvaluatingCompilerExceptionsTest : EvaluatorTestBase() {
     fun badCastToInt() = checkInputThrowingEvaluationException(
         "CAST('a' as int) > 0",
         ErrorCode.EVALUATOR_CAST_FAILED,
-        sourceLocationProperties(1, 5) + mapOf(Property.CAST_FROM to "STRING", Property.CAST_TO to "INT"))
+        sourceLocationProperties(1, 5) + mapOf(Property.CAST_FROM to "STRING", Property.CAST_TO to "INTEGER"))
 
     @Test
     fun badCastInSelectToInt() = checkInputThrowingEvaluationException(
         "SELECT *  FROM `[{_1: a, _2: 1}, {_1: a, _2: 'a'}, {_1: a, _2: 3}]` WHERE CAST(_2 as INT) > 0",
         ErrorCode.EVALUATOR_CAST_FAILED,
-        sourceLocationProperties(1, 79) + mapOf(Property.CAST_FROM to "SYMBOL", Property.CAST_TO to "INT"))
+        sourceLocationProperties(1, 79) + mapOf(Property.CAST_FROM to "SYMBOL", Property.CAST_TO to "INTEGER"))
 
     @Test
     fun badCastToDecimal() = checkInputThrowingEvaluationException(
@@ -142,14 +142,28 @@ class EvaluatingCompilerExceptionsTest : EvaluatorTestBase() {
         IllegalArgumentException::class)
 
     @Test
-    fun divideByZero() = assertThrows("/ by zero", NodeMetadata(1, 3)) {
-        voidEval("1 / 0")
-    }
+    fun divideByZero() = checkInputThrowingEvaluationException(
+        "1 / 0",
+        ErrorCode.EVALUATOR_DIVIDE_BY_ZERO,
+        sourceLocationProperties(1, 3)) 
 
     @Test
-    fun divideByZeroDecimal() = assertThrows("/ by zero", NodeMetadata(1, 5)) {
-        voidEval("1.0 / 0.0")
-    }
+    fun divideByZeroDecimal() = checkInputThrowingEvaluationException(
+        "1.0 / 0.0",
+        ErrorCode.EVALUATOR_DIVIDE_BY_ZERO,
+        sourceLocationProperties(1, 5))
+
+    @Test
+    fun moduloByZero() = checkInputThrowingEvaluationException(
+        "1 % 0",
+        ErrorCode.EVALUATOR_MODULO_BY_ZERO,
+        sourceLocationProperties(1, 3))
+
+    @Test
+    fun moduloByZeroDecimal() = checkInputThrowingEvaluationException(
+        "1.0 % 0.0",
+        ErrorCode.EVALUATOR_MODULO_BY_ZERO,
+        sourceLocationProperties(1, 5))
 
     @Test
     fun divideByZeroInSelect() = assertThrows("/ by zero", NodeMetadata(1, 76)) {
@@ -184,4 +198,48 @@ class EvaluatingCompilerExceptionsTest : EvaluatorTestBase() {
         """SELECT ? FROM <<1>>""",
         ErrorCode.EVALUATOR_UNBOUND_PARAMETER,
         sourceLocationProperties(1, 8) + mapOf(Property.EXPECTED_PARAMETER_ORDINAL to 1, Property.BOUND_PARAMETER_COUNT to 0))
+
+    @Test
+    fun trimSpecKeywordBothNotUsedInTrim() =
+        checkInputThrowingEvaluationException(
+            "SELECT 1 FROM both",
+            ErrorCode.EVALUATOR_BINDING_DOES_NOT_EXIST,
+            mapOf(
+                Property.LINE_NUMBER to 1L,
+                Property.COLUMN_NUMBER to 15L,
+                Property.BINDING_NAME to "both")
+        )
+
+    @Test
+    fun trimSpecKeywordLeadingNotUsedInTrim() =
+        checkInputThrowingEvaluationException(
+            "SELECT 1 FROM leading",
+            ErrorCode.EVALUATOR_BINDING_DOES_NOT_EXIST,
+            mapOf(
+                Property.LINE_NUMBER to 1L,
+                Property.COLUMN_NUMBER to 15L,
+                Property.BINDING_NAME to "leading")
+        )
+
+    @Test
+    fun trimSpecKeywordTrailingNotUsedInTrim() =
+        checkInputThrowingEvaluationException(
+            "SELECT 1 FROM trailing",
+            ErrorCode.EVALUATOR_BINDING_DOES_NOT_EXIST,
+            mapOf(
+                Property.LINE_NUMBER to 1L,
+                Property.COLUMN_NUMBER to 15L,
+                Property.BINDING_NAME to "trailing")
+        )
+
+    @Test
+    fun trimSpecKeywordLeadingUsedAsSecondArgInTrim() =
+        checkInputThrowingEvaluationException(
+            "trim(both leading from 'foo')",
+            ErrorCode.EVALUATOR_BINDING_DOES_NOT_EXIST,
+            mapOf(
+                Property.LINE_NUMBER to 1L,
+                Property.COLUMN_NUMBER to 11L,
+                Property.BINDING_NAME to "leading")
+        )
 }

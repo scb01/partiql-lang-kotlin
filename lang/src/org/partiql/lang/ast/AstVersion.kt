@@ -18,20 +18,10 @@ enum class AstVersion(val number: Int) {
     /**
      * The "legacy" AST in the form of `(meta <exp> { line: <line>, column: <column> })`.
      */
-    V0(0),
-
-    /**
-     * The first iteration of the "new" AST in the form of:
-     * ```
-     * (term
-     *   (exp <exp>
-     *   (meta ($source_location { line_num: <line_num>, char_offset: })))
-     * ```
-     */
-    V1(1);
+    V0(0);
 
     companion object {
         /** The range of currently supported AST versions in human readable format. */
-        val versionsAsString = AstVersion.values().map { it.number }.joinToString(", ")
+        val versionsAsString = values().map { it.number }.joinToString(", ")
     }
 }

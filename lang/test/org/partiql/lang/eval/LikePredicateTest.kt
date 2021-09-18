@@ -19,6 +19,7 @@ import org.partiql.lang.errors.*
 import org.partiql.lang.util.*
 import org.assertj.core.api.*
 import org.junit.*
+import org.junit.Test
 import kotlin.test.*
 
 class LikePredicateTest : EvaluatorTestBase() {
@@ -38,6 +39,7 @@ class LikePredicateTest : EvaluatorTestBase() {
           {name: null, type: "unicorn"},
         ]
         """).toSession()
+
 
     @Test
     fun emptyTextUnderscorePattern() = assertEval("""SELECT * FROM `[true]` as a WHERE '' LIKE '_'  """, "[]", animals)
@@ -628,6 +630,7 @@ class LikePredicateTest : EvaluatorTestBase() {
         voidEval("SELECT * FROM `[{name:1, type:\"a\"}]` as a WHERE a.name LIKE a.type ")
     }
 
-
-
+    /** Regression test for: https://github.com/partiql/partiql-lang-kotlin/issues/32 */
+    @Test
+    fun multiCodepointPattern() = assertEval("'😍' LIKE '😍'", "true")
 }

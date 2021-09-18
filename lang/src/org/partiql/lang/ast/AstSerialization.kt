@@ -20,18 +20,15 @@ import com.amazon.ion.IonSystem
 import org.partiql.lang.util.IonWriterContext
 import org.partiql.lang.util.asIonSexp
 import org.partiql.lang.util.case
-import java.lang.UnsupportedOperationException
-
-/**
- * The current version of the AST.  Update this once every time a new variant of the AST is created.
- */
-private val CURRENT_AST_VERSION = AstVersion.V1
+import org.partiql.lang.util.checkThreadInterrupted
+import kotlin.UnsupportedOperationException
 
 /**
  * Serializes an instance of [ExprNode] to one of the s-expression based ASTs.
  *
  * Implementations of this should not be assumed to be thread-safe.
  */
+@Deprecated("Please use PartiqlAst")
 interface AstSerializer {
     fun serialize(exprNode: ExprNode): IonSexp
     companion object {
@@ -40,6 +37,7 @@ interface AstSerializer {
          *
          * [exprNode] must be valid as determined by [AstSanityVisitor].
          */
+        @Deprecated("Please use PartiqlAst")
         @JvmStatic
         fun serialize(exprNode: ExprNode, astVersion: AstVersion, ion: IonSystem): IonSexp {
             return AstSerializerImpl(astVersion, ion).serialize(exprNode)
@@ -49,73 +47,37 @@ interface AstSerializer {
 
 private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem): AstSerializer {
     override fun serialize(exprNode: ExprNode): IonSexp {
-        when (astVersion) {
-            AstVersion.V0 -> {
-                val resultSexp = ion.newEmptySexp()
-                val writer = ion.newWriter(resultSexp)
-                IonWriterContext(writer).apply {
-                    this.writeExprNode(exprNode)
-                }
-                return resultSexp[0].asIonSexp()
-            }
-            AstVersion.V1 -> {
-                val resultSexp = ion.newEmptySexp()
-                val writer = ion.newWriter(resultSexp)
-                IonWriterContext(writer).apply {
-                    symbol("ast")
-                    sexp {
-                        symbol("version")
-                        int(CURRENT_AST_VERSION.number.toLong())
-                    }
-                    sexp {
-                        symbol("root")
-                        this.writeExprNode(exprNode)
-                    }
-                    return resultSexp
+        val resultSexp = ion.newEmptySexp()
+        val writer = ion.newWriter(resultSexp)
+        IonWriterContext(writer).apply {
+            this.writeExprNode(exprNode)
+        }
+        return resultSexp[0].asIonSexp()
+    }
+
+    private fun IonWriterContext.writeAsTerm(metas: MetaContainer?, block: IonWriterContext.() -> Unit) {
+        val sloc = metas?.find(SourceLocationMeta.TAG) as? SourceLocationMeta
+        if(sloc != null) {
+            sexp {
+                symbol("meta")
+                block()
+                struct {
+                    int("line", sloc.lineNum)
+                    int("column", sloc.charOffset)
                 }
             }
         }
-    }
-
-    private fun IonWriterContext.writeAsTerm(metas: MetaContainer, block: IonWriterContext.() -> Unit) {
-        when(astVersion) {
-            AstVersion.V0 -> {
-                val sloc = metas.find(SourceLocationMeta.TAG) as? SourceLocationMeta
-                if(sloc != null) {
-                    sexp {
-                        symbol("meta")
-                        block()
-                        struct {
-                            int("line", sloc.lineNum)
-                            int("column", sloc.charOffset)
-                        }
-                    }
-                }
-                else {
-                    block()
-                }
-            }
-            AstVersion.V1 ->
-                sexp {
-                    symbol("term")
-                    sexp {
-                        symbol("exp")
-                        block()
-                    }
-                    if (metas.shouldSerialize) {
-                        sexp {
-                            symbol("meta")
-                            metas.serialize(this.writer)
-                        }
-                    }
-                }
+        else {
+            block()
         }
     }
 
     private fun IonWriterContext.writeExprNode(expr: ExprNode): Unit =
         writeAsTerm(expr.metas) {
+            checkThreadInterrupted()
             sexp {
                 when (expr) {
+                    // Leaf nodes
                     is Literal           -> case { writeLiteral(expr) }
                     is LiteralMissing    -> case { writeLiteralMissing(expr) }
                     is VariableReference -> case { writeVariableReference(expr) }
@@ -129,7 +91,14 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
                     is Seq               -> case { writeSeq(expr) }
                     is Select            -> case { writeSelect(expr) }
                     is DataManipulation  -> case { writeDataManipulation(expr) }
+                    is CreateTable       -> case { writeCreateTable(expr) }
+                    is CreateIndex       -> case { writeCreateIndex(expr) }
+                    is DropTable         -> case { writeDropTable(expr) }
+                    is DropIndex         -> case { writeDropIndex(expr) }
                     is Parameter         -> case { writeParameter(expr)}
+                    is DateTimeType.Date -> throw UnsupportedOperationException("DATE literals not supported by the V0 AST")
+                    is DateTimeType.Time -> throw UnsupportedOperationException("TIME literals not supported by the V0 AST")
+                    is Exec              -> throw UnsupportedOperationException("EXEC clause not supported by the V0 AST")
                 }.toUnit()
             }
         }
@@ -147,20 +116,26 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
 
     private fun IonWriterContext.writeVariableReference(expr: VariableReference) {
         val (id, sensitivity, lookup, _: MetaContainer) = expr
-        fun writeVarRef() {
-            symbol("id")
-            symbol(id)
-            symbol(sensitivity.toSymbol())
-        }
-        if (lookup == ScopeQualifier.LEXICAL) {
-            symbol("@")
-            sexp {
-                writeVarRef()
+
+        when(astVersion) {
+            AstVersion.V0 -> {
+                fun writeVarRef() {
+                    symbol("id")
+                    symbol(id)
+                    symbol(sensitivity.toSymbol())
+                }
+                if (lookup == ScopeQualifier.LEXICAL) {
+                    symbol("@")
+                    sexp {
+                        writeVarRef()
+                    }
+                }
+                else {
+                    writeVarRef()
+                }
             }
         }
-        else {
-            writeVarRef()
-        }
+
     }
 
     private fun IonWriterContext.writeCallAgg(expr: CallAgg) {
@@ -172,8 +147,12 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
             }
             else -> {
                 symbol("call_agg")
-                symbol(funcExpr.getFuncName())
-                symbol(setQuantifier.toString().toLowerCase())
+                when (astVersion) {
+                    AstVersion.V0 -> {
+                        symbol(funcExpr.getFuncName())
+                        symbol(setQuantifier.toString().toLowerCase())
+                    }
+                }
                 writeExprNode(arg)
             }
 
@@ -193,18 +172,27 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
         symbol("struct")
         fields.forEach {
             val (name, valueExpr) = it
-            writeExprNode(name)
-            writeExprNode(valueExpr)
+
+            when (astVersion) {
+                AstVersion.V0 -> {
+                    writeExprNode(name)
+                    writeExprNode(valueExpr)
+                }
+            }
         }
     }
 
     fun IonWriterContext.writeDataType(dataType: DataType) {
         writeAsTerm(dataType.metas) {
             sexp {
-                symbol("type")
-                symbol(dataType.sqlDataType.typeName)
-                dataType.args.forEach {
-                    int(it)
+                when(astVersion) {
+                    AstVersion.V0 -> {
+                        symbol("type")
+                        symbol(dataType.sqlDataType.typeName)
+                        dataType.args.forEach {
+                            int(it)
+                        }
+                    }
                 }
             }
         }
@@ -219,7 +207,14 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
     }
 
     private fun IonWriterContext.writeSelect(expr: Select) {
-        val (setQuantifier, projection, from, where, groupBy, having, limit, _: MetaContainer) = expr
+        val (setQuantifier, projection, from, fromLet, where, groupBy, having, orderBy, limit, _: MetaContainer) = expr
+        if (orderBy != null) {
+            throw UnsupportedOperationException("ORDER BY clause is not supported by the V0 AST")
+        }
+
+        if (fromLet != null) {
+            throw UnsupportedOperationException("LET clause is not supported by the V0 AST")
+        }
 
         writeSelectProjection(projection, setQuantifier)
 
@@ -289,72 +284,108 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
         }
     }
 
-    internal inline fun IonWriterContext.writeDataManipulation(expr: DataManipulation,
-                                                               crossinline writeExprNodeFunc: IonWriterContext.(ExprNode) -> Unit,
-                                                               crossinline writeFromSourceFunc: IonWriterContext.(FromSource) -> Unit) {
-        val (dmlOp, from, where, _: MetaContainer) = expr
+    private fun IonWriterContext.writeDataManipulation(expr: DataManipulation) {
+        val (dmlOp, from, where, returning, _: MetaContainer) = expr
+
+        if (returning != null) {
+            throw java.lang.UnsupportedOperationException("RETURNING clause not supported by V0 AST.")
+        }
 
         // TODO refactor this along with SELECT to be more functional (i.e. granular)
         symbol("dml")
 
-        sexp {
-            symbol(dmlOp.name)
-
-            when (dmlOp) {
-                is InsertOp -> case {
-                    writeExprNodeFunc(dmlOp.lvalue)
-                    writeExprNodeFunc(dmlOp.values)
-                }
-                is InsertValueOp -> case {
-                    writeExprNodeFunc(dmlOp.lvalue)
-                    writeExprNodeFunc(dmlOp.value)
-                    dmlOp.position?.let { writeExprNodeFunc(it) }
-                }
-                is AssignmentOp -> case {
-                    dmlOp.assignments.forEach {
-                        sexp {
-                            symbol("assignment")
-                            writeExprNodeFunc(it.lvalue)
-                            writeExprNodeFunc(it.rvalue)
-                        }
-                    }
-                }
-                is RemoveOp -> case {
-                    writeExprNodeFunc(dmlOp.lvalue)
-                }
-                is DeleteOp -> case {
-                    // no-op - implicit target
-                }
-            }.toUnit()
+        when (astVersion) {
+            AstVersion.V0 -> writeDataManipulationOperation(dmlOp)
         }
 
         from?.let {
             sexp {
                 symbol("from")
-                writeFromSourceFunc(it)
+                writeFromSource(it)
             }
         }
         where?.let {
             sexp{
                 symbol("where")
-                writeExprNodeFunc(it)
+                writeExprNode(it)
             }
         }
     }
 
-    private fun IonWriterContext.writeDataManipulation(expr: DataManipulation) {
-        writeDataManipulation(expr, { writeExprNode(it) }, { writeFromSource(it) })
+    private fun IonWriterContext.writeDataManipulationOperation(opList: DmlOpList) {
+        // The V0 AST supports multiple set operations, i.e.: SET a = 1, b = 2, c = 3,
+        // but it does *not* support mixing multiple DML operations together, i.e.: SET a = 1, REMOVE b is illegal
+        // The following bit of code checks to make sure that [dmlOp] only contains items that can be represented in
+        // the V0 AST.
+        val isSetOnly = if(!opList.ops.any { it !is AssignmentOp }) {
+            if(opList.ops.size != 1) {
+                throw UnsupportedOperationException(
+                    "A single DML statement with multiple operations other than SET cannot be represented with the V0 AST")
+            }
+            true
+        } else {
+            false
+        }
+
+        if(!isSetOnly) {
+            val dmlOp = opList.ops.first()
+
+            sexp {
+                symbol(dmlOp.name)
+
+                when (dmlOp) {
+                    is InsertOp -> {
+                        writeExprNode(dmlOp.lvalue)
+                        writeExprNode(dmlOp.values)
+                    }
+                    is InsertValueOp -> {
+                        writeExprNode(dmlOp.lvalue)
+                        writeExprNode(dmlOp.value)
+
+                        when (astVersion) {
+                            AstVersion.V0 ->
+                                dmlOp.position?.let { writeExprNode(it) }
+                        }
+                    }
+                    is RemoveOp -> {
+                        writeExprNode(dmlOp.lvalue)
+                    }
+                    is DeleteOp -> {
+                        // no-op - implicit target
+                    }
+                    is AssignmentOp -> error("should be handled by else block below")
+                }.let {}
+            }
+        } else {
+            sexp {
+                symbol("set")
+                // Cast should always succeed due to checks at top of function.
+                opList.ops.map { it as AssignmentOp }.forEach {
+                    val assignment = it.assignment
+                    sexp {
+                        symbol("assignment")
+                        writeExprNode(assignment.lvalue)
+                        writeExprNode(assignment.rvalue)
+                    }
+                }
+            }
+
+        }
     }
+
 
     private fun IonWriterContext.writeSelectProjection(projection: SelectProjection, setQuantifier: SetQuantifier) {
-        when (projection) {
-            is SelectProjectionValue -> case { writeSelectProjectionValue(projection, setQuantifier) }
-            is SelectProjectionPivot -> case { writeSelectProjectionPivot(projection) }
-            is SelectProjectionList  -> case { writeSelectProjectionList(projection, setQuantifier) }
-        }.toUnit()
+        when (astVersion) {
+            AstVersion.V0 ->
+                when (projection) {
+                    is SelectProjectionValue -> case { writeSelectProjectionValueV0(projection, setQuantifier) }
+                    is SelectProjectionPivot -> case { writeSelectProjectionPivotV0(projection) }
+                    is SelectProjectionList -> case { writeSelectProjectionListV0(projection, setQuantifier) }
+                }.toUnit()
+        }
     }
 
-    private fun IonWriterContext.writeSelectProjectionValue(
+    private fun IonWriterContext.writeSelectProjectionValueV0(
         projection: SelectProjectionValue,
         setQuantifier: SetQuantifier) {
         val (valueExpr) = projection
@@ -373,7 +404,7 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
         }
     }
 
-    private fun IonWriterContext.writeSelectProjectionPivot(projection: SelectProjectionPivot) {
+    private fun IonWriterContext.writeSelectProjectionPivotV0(projection: SelectProjectionPivot) {
         val (asExpr, atExpr) = projection
         symbol("pivot")
 
@@ -384,7 +415,7 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
         }
     }
 
-    private fun IonWriterContext.writeSelectProjectionList(
+    private fun IonWriterContext.writeSelectProjectionListV0(
         projection: SelectProjectionList,
         setQuantifier: SetQuantifier) {
         val (items) = projection
@@ -414,10 +445,7 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
     private fun IonWriterContext.writeSelectListItemStar(it: SelectListItemStar) {
         writeAsTerm(it.metas) {
             sexp {
-                when(astVersion) {
-                    AstVersion.V0 -> case { symbol("project_all") }
-                    AstVersion.V1 -> case { symbol("star") }
-                }.toUnit()
+                case { symbol("project_all") }.toUnit()
             }
         }
     }
@@ -441,27 +469,33 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
     private fun IonWriterContext.writeSelectListItemProjectAll(it: SelectListItemProjectAll) {
         val (exp) = it
         sexp {
-
-            symbol(
-                when(astVersion) {
-                    AstVersion.V0 -> "project_all"
-                    AstVersion.V1 -> "path_project_all"
-                }
-            )
+            symbol("project_all")
             writeExprNode(exp)
         }
     }
 
     private fun IonWriterContext.writeFromSource(fromSource: FromSource): Unit =
+        when(astVersion) {
+            AstVersion.V0 -> writeFromSourceV0(fromSource)
+        }
+
+    /** Emits an untyped null if a null [name] is passed or a symbol consisting of [name] otherwise. */
+    private fun IonWriterContext.writeSymbolicName(name: SymbolicName?): Unit =
+        when (name) {
+            null -> untypedNull()
+            else -> writeAsTerm(name.metas) { symbol(name.name) }
+        }
+
+    private fun IonWriterContext.writeFromSourceV0(fromSource: FromSource) {
         when (fromSource) {
-            is FromSourceExpr    -> case {
-            val (exp, aliases) = fromSource
+            is FromSourceExpr -> case {
+                val (exp, aliases) = fromSource
                 nestByAlias(aliases) {
                     writeExprNode(exp)
                 }
             }
             is FromSourceUnpivot -> case {
-            val (exp, aliases, metas) = fromSource
+                val (exp, aliases, metas) = fromSource
                 nestByAlias(aliases) {
                     writeAsTerm(metas) {
                         sexp {
@@ -471,14 +505,14 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
                     }
                 }
             }
-            is FromSourceJoin    -> case {
+            is FromSourceJoin -> case {
                 val (op, leftRef, rightRef, condition) = fromSource
                 writeAsTerm(fromSource.metas) {
                     sexp {
                         symbol(
                             when (op) {
                                 JoinOp.INNER -> "inner_join"
-                                JoinOp.LEFT  -> "left_join"
+                                JoinOp.LEFT -> "left_join"
                                 JoinOp.RIGHT -> "right_join"
                                 JoinOp.OUTER -> "outer_join"
                             }
@@ -493,23 +527,28 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
                 }
             }
         }.toUnit()
+    }
 
     private fun IonWriterContext.writeSimpleCase(expr: SimpleCase) {
         symbol("simple_case")
         val (valueExpr, whenClauses, elseExpr, _: MetaContainer) = expr
         writeExprNode(valueExpr)
-        whenClauses.forEach {
-            val (whenValueExpr, thenExpr) = it
-            sexp {
-                symbol("when")
-                writeExprNode(whenValueExpr)
-                writeExprNode(thenExpr)
-            }
-        }
-        elseExpr?.let {
-            sexp {
-                symbol("else")
-                writeExprNode(it)
+        when (astVersion) {
+            AstVersion.V0 -> {
+                whenClauses.forEach {
+                    val (whenValueExpr, thenExpr) = it
+                    sexp {
+                        symbol("when")
+                        writeExprNode(whenValueExpr)
+                        writeExprNode(thenExpr)
+                    }
+                }
+                elseExpr?.let {
+                    sexp {
+                        symbol("else")
+                        writeExprNode(it)
+                    }
+                }
             }
         }
     }
@@ -517,18 +556,39 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
     private fun IonWriterContext.writeSearchedCase(expr: SearchedCase) {
         symbol("searched_case")
         val (whenClauses, elseExpr, _: MetaContainer) = expr
-        whenClauses.forEach {
-            val (condition, thenExpr) = it
-            sexp {
-                symbol("when")
-                writeExprNode(condition)
-                writeExprNode(thenExpr)
+        when (astVersion) {
+            AstVersion.V0 -> {
+                whenClauses.forEach {
+                    val (condition, thenExpr) = it
+                    sexp {
+                        symbol("when")
+                        writeExprNode(condition)
+                        writeExprNode(thenExpr)
+                    }
+                }
+                elseExpr?.let {
+                    sexp {
+                        symbol("else")
+                        writeExprNode(it)
+                    }
+                }
             }
         }
-        elseExpr?.let {
-            sexp {
-                symbol("else")
-                writeExprNode(it)
+    }
+
+    private fun IonWriterContext.writeExprPair(first: ExprNode, second: ExprNode) {
+        sexp {
+            symbol("expr_pair")
+            writeExprNode(first)
+            writeExprNode(second)
+        }
+    }
+
+    private fun IonWriterContext.writeExprPairList(exprPairList: List<Pair<ExprNode, ExprNode>>) {
+        sexp {
+            symbol("expr_pair_list")
+            exprPairList.forEach {
+                writeExprPair(it.first, it.second)
             }
         }
     }
@@ -539,7 +599,6 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
         writeExprNode(root)
         when(astVersion) {
             AstVersion.V0 -> case { writePathComponentsV0(components) }
-            AstVersion.V1 -> case { writePathComponentsV1(components) }
         }
     }
 
@@ -585,96 +644,63 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
         }
     }
 
-    private fun IonWriterContext.writePathComponentsV1(components: List<PathComponent>) {
-        components.forEach {
-            sexp {
-                symbol("path_element")
-                when (it) {
-                    is PathComponentExpr     -> case { writePathComponentExprV1(it) }
-                    is PathComponentUnpivot  -> case { writePathComponentUnpivotV1(it) }
-                    is PathComponentWildcard -> case { writePathComponentWildcardV1(it) }
-                }.toUnit()
-            }
-        }
-    }
-
-    private fun IonWriterContext.writePathComponentExprV1(pathComponent: PathComponentExpr) {
-        val (exp, case) = pathComponent
-        writeExprNode(exp)
-        symbol(case.toSymbol())
-    }
-
-    private fun IonWriterContext.writePathComponentUnpivotV1(pathComponent: PathComponentUnpivot) {
-        writeAsTerm(pathComponent.metas) {
-            sexp {
-                symbol("star")
-                symbol("unpivot")
-            }
-        }
-    }
-
-    private fun IonWriterContext.writePathComponentWildcardV1(pathComponent: PathComponentWildcard) {
-        writeAsTerm(pathComponent.metas) {
-            sexp {
-                symbol("star")
-            }
-        }
-    }
-
     private fun IonWriterContext.writeNAry(expr: NAry) {
         val (op, args, _: MetaContainer) = expr
 
-        if(astVersion == AstVersion.V0) {
-            // The new AST has no equivalent for not_between, not_like and is_not.
-            // These are expressed by wrapping between, like and is in an NAry with NAryOp.Not operation.
-            // The true branch will unwrap that expression, preserving the original AST form.
-            if (op == NAryOp.NOT && expr.metas.hasMeta(LegacyLogicalNotMeta.TAG)) {
-                val firstArg = args.first()
-                //Note: it is intentional that this is `when` statement and not an expression
-                when (firstArg) {
-                    is NAry  -> {
-                        val (argOp, argArgs, _: MetaContainer) = firstArg
+        // The new AST has no equivalent for not_between, not_like and is_not.
+        // These are expressed by wrapping between, like and is in an NAry with NAryOp.Not operation.
+        // The true branch will unwrap that expression, preserving the original AST form.
+        if (astVersion == AstVersion.V0 && op == NAryOp.NOT && expr.metas.hasMeta(LegacyLogicalNotMeta.TAG)) {
+            val firstArg = args.first()
+            //Note: it is intentional that this is `when` statement and not an expression
+            when (firstArg) {
+                is NAry  -> {
+                    val (argOp, argArgs, _: MetaContainer) = firstArg
 
-                        fun recurseArgs() {
-                            argArgs.forEach { writeExprNode(it) }
+                    fun recurseArgs() {
+                        argArgs.forEach { writeExprNode(it) }
+                    }
+                    when (argOp) {
+                        NAryOp.BETWEEN -> {
+                            symbol("not_between")
+                            recurseArgs()
                         }
-                        when (argOp) {
-                            NAryOp.BETWEEN -> {
-                                symbol("not_between")
-                                recurseArgs()
-                            }
-                            NAryOp.LIKE    -> {
-                                symbol("not_like")
-                                recurseArgs()
-                            }
-                            NAryOp.IN      -> {
-                                symbol("not_in")
-                                recurseArgs()
-                            }
-                            else           -> {
-                                throw IllegalStateException("Invalid NAryOp on argument of `(not )` node decorated with LegacyLogicalNotMeta")
-                            }
+                        NAryOp.LIKE    -> {
+                            symbol("not_like")
+                            recurseArgs()
+                        }
+                        NAryOp.IN      -> {
+                            symbol("not_in")
+                            recurseArgs()
+                        }
+                        else           -> {
+                            throw IllegalStateException("Invalid NAryOp on argument of `(not )` node decorated with LegacyLogicalNotMeta")
                         }
                     }
-                    is Typed -> {
-                        if (firstArg.op != TypedOp.IS) {
-                            throw IllegalStateException("Invalid TypedOp on argument of `(not )` node decorated with LegacyLogicalNotMeta")
-                        }
-                        symbol("is_not")
-                        writeExprNode(firstArg.expr)
-                        writeDataType(firstArg.type)
-                    }
-                    else     -> {
-                        throw IllegalStateException("Invalid node type of of `(not )` node decorated with LegacyLogicalNotMeta")
-                    }
-
                 }
-                return
+                is Typed -> {
+                    if (firstArg.op != TypedOp.IS) {
+                        throw IllegalStateException("Invalid TypedOp on argument of `(not )` node decorated with LegacyLogicalNotMeta")
+                    }
+                    symbol("is_not")
+                    writeExprNode(firstArg.expr)
+                    writeDataType(firstArg.type)
+                }
+                else     -> {
+                    throw IllegalStateException("Invalid node type of of `(not )` node decorated with LegacyLogicalNotMeta")
+                }
+
             }
+            return
         }
 
+        val opSymbol = getOpSymbol(op)
+        symbol(opSymbol)
 
-        symbol(op.symbol)
+        fun writeArgs() = args.forEach {
+            writeExprNode(it)
+        }
+
         when(op) {
             NAryOp.CALL -> {
                 // Note: we can assume that by this point the AST has been checked
@@ -687,10 +713,87 @@ private class AstSerializerImpl(val astVersion: AstVersion, val ion: IonSystem):
                     writeExprNode(it)
                 }
             }
-            else -> {
-                args.forEach {
-                    writeExprNode(it)
+            NAryOp.UNION, NAryOp.EXCEPT, NAryOp.INTERSECT -> {
+                writeArgs()
+            }
+            NAryOp.UNION_ALL, NAryOp.EXCEPT_ALL, NAryOp.INTERSECT_ALL -> {
+                writeArgs()
+            }
+            NAryOp.LIKE -> {
+                writeArgs()
+            }
+            else -> { writeArgs() }
+        }
+    }
+
+    private fun getOpSymbol(op: NAryOp) =
+        when(astVersion) {
+            AstVersion.V0 -> op.symbol
+        }
+
+    private fun IonWriterContext.writeCreateIndex(expr: CreateIndex) {
+        when (astVersion) {
+            AstVersion.V0 -> {
+                symbol("create")
+                symbol(null)
+                sexp {
+                    symbol("index")
+                    symbol(expr.tableName)
+                    sexp {
+                        symbol("keys")
+                        expr.keys.forEach {
+                            writeExprNode(it)
+                        }
+                    }
                 }
+            }
+        }
+    }
+
+    private fun IonWriterContext.writeCreateTable(expr: CreateTable) {
+        when (astVersion) {
+            AstVersion.V0 -> {
+                symbol("create")
+                symbol(expr.tableName)
+                sexp {
+                    symbol("table")
+                }
+            }
+        }
+    }
+
+    private fun IonWriterContext.writeDropTable(expr: DropTable) {
+        when (astVersion) {
+            AstVersion.V0 -> {
+                symbol("drop_table")
+                symbol(expr.tableName)
+            }
+        }
+    }
+
+    private fun IonWriterContext.writeDropIndex(expr: DropIndex) {
+        when (astVersion) {
+            AstVersion.V0 -> {
+                symbol("drop_index")
+                symbol(expr.tableName)
+                writeExprNode(expr.identifier)
+            }
+        }
+    }
+
+    private fun IonWriterContext.writeDDL(block: () -> Unit) {
+        symbol("ddl")
+        sexp {
+            block()
+        }
+    }
+
+    private fun IonWriterContext.writeIdentifier(name: String, caseSensitivity: CaseSensitivity) {
+        sexp {
+            symbol("identifier")
+            symbol(name)
+            sexp {
+                symbol(caseSensitivity.toSymbol())
             }
         }
     }

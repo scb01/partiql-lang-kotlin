@@ -14,20 +14,21 @@
 
 package org.partiql.lang
 
+import com.amazon.ion.*
 import com.amazon.ion.system.IonSystemBuilder
+import org.assertj.core.api.*
 import org.partiql.lang.ast.*
-import org.partiql.lang.ast.passes.*
+import org.partiql.lang.eval.*
 import org.partiql.lang.errors.*
-import junitparams.JUnitParamsRunner
+import org.partiql.lang.util.*
 import org.junit.Assert
 import org.junit.runner.RunWith
 import java.util.*
-
-import org.partiql.lang.errors.Property.*
-import org.partiql.lang.eval.*
-import org.partiql.lang.util.*
-import org.assertj.core.api.*
-import com.amazon.ion.*
+import junitparams.JUnitParamsRunner
+import org.partiql.lang.ast.passes.AstRewriterBase
+import org.partiql.lang.eval.time.Time
+import java.math.BigDecimal
+import java.time.LocalDate
 import kotlin.reflect.*
 
 
@@ -43,6 +44,10 @@ abstract class TestBase : Assert() {
         is Int       -> valueFactory.newInt(value)
         is Decimal   -> valueFactory.newDecimal(value)
         is Timestamp -> valueFactory.newTimestamp(value)
+        is LocalDate -> valueFactory.newDate(value)
+        is Time      -> valueFactory.newTime(value)
+        is Double    -> valueFactory.newFloat(value)
+        is BigDecimal -> valueFactory.newDecimal(value)
         else         ->
             error("Can't convert receiver to ExprValue (please extend this function to support the receiver's data type).")
     }
@@ -73,7 +78,7 @@ abstract class TestBase : Assert() {
     }
 
 
-    protected fun assertRewrite(originalSql: String, exprNode: ExprNode) {
+    protected fun assertBaseRewrite(originalSql: String, exprNode: ExprNode) {
         val clonedAst = defaultRewriter.rewriteExprNode(exprNode)
         assertEquals(
             "AST returned from default AstRewriterBase should match the original AST. SQL was: $originalSql",

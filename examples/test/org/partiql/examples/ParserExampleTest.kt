@@ -12,155 +12,65 @@ class ParserExampleTest : BaseExampleTest() {
 Serialized AST
     
     (
-      ast
+      query
       (
-        version
-        1
-      )
-      (
-        root
+        select
         (
-          term
+          project
           (
-            exp
+            project_list
             (
-              select
+              project_expr
               (
-                project
+                id
+                exampleField
                 (
-                  list
-                  (
-                    term
-                    (
-                      exp
-                      (
-                        id
-                        exampleField
-                        case_insensitive
-                      )
-                    )
-                    (
-                      meta
-                      (
-                        ${'$'}source_location
-                        (
-                          {
-                            line_num:1,
-                            char_offset:8
-                          }
-                        )
-                      )
-                    )
-                  )
+                  case_insensitive
+                )
+                (
+                  unqualified
                 )
               )
-              (
-                from
-                (
-                  term
-                  (
-                    exp
-                    (
-                      id
-                      exampleTable
-                      case_insensitive
-                    )
-                  )
-                  (
-                    meta
-                    (
-                      ${'$'}source_location
-                      (
-                        {
-                          line_num:1,
-                          char_offset:26
-                        }
-                      )
-                    )
-                  )
-                )
-              )
-              (
-                where
-                (
-                  term
-                  (
-                    exp
-                    (
-                      >
-                      (
-                        term
-                        (
-                          exp
-                          (
-                            id
-                            anotherField
-                            case_insensitive
-                          )
-                        )
-                        (
-                          meta
-                          (
-                            ${'$'}source_location
-                            (
-                              {
-                                line_num:1,
-                                char_offset:45
-                              }
-                            )
-                          )
-                        )
-                      )
-                      (
-                        term
-                        (
-                          exp
-                          (
-                            lit
-                            10
-                          )
-                        )
-                        (
-                          meta
-                          (
-                            ${'$'}source_location
-                            (
-                              {
-                                line_num:1,
-                                char_offset:60
-                              }
-                            )
-                          )
-                        )
-                      )
-                    )
-                  )
-                  (
-                    meta
-                    (
-                      ${'$'}source_location
-                      (
-                        {
-                          line_num:1,
-                          char_offset:58
-                        }
-                      )
-                    )
-                  )
-                )
-              )
+              null
             )
           )
+        )
+        (
+          from
           (
-            meta
+            scan
             (
-              ${'$'}source_location
+              id
+              exampleTable
               (
-                {
-                  line_num:1,
-                  char_offset:1
-                }
+                case_insensitive
               )
+              (
+                unqualified
+              )
+            )
+            null
+            null
+            null
+          )
+        )
+        (
+          where
+          (
+            gt
+            (
+              id
+              anotherField
+              (
+                case_insensitive
+              )
+              (
+                unqualified
+              )
+            )
+            (
+              lit
+              10
             )
           )
         )
