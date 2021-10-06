@@ -810,7 +810,7 @@ internal class EvaluatingCompiler(
                 val locationMeta = metas.sourceLocationMeta
                 thunkFactory.thunkEnv(metas) { env ->
                     val valueToCast = expThunk(env)
-                    valueToCast.cast(dataType, valueFactory, locationMeta)
+                    valueToCast.cast(dataType, valueFactory, locationMeta, env.session)
                 }
             }
         }
@@ -1999,9 +1999,19 @@ internal class EvaluatingCompiler(
     }
 
     private fun compileTime(node: DateTimeType.Time) : ThunkEnv {
-        val (hour, minute, second, nano, precision, tz_minutes, metas) = node
+        val (hour, minute, second, nano, precision, with_time_zone, tz_minutes, metas) = node
         return thunkFactory.thunkEnv(metas) {
-            valueFactory.newTime(Time.of(hour, minute, second, nano, precision, tz_minutes))
+            // Add the default time zone if the type "TIME WITH TIME ZONE" does not have an explicitly specified time zone.
+            valueFactory.newTime(
+                Time.of(
+                    hour,
+                    minute,
+                    second,
+                    nano,
+                    precision,
+                    if (with_time_zone && tz_minutes == null) it.session.defaultTimezoneOffset.totalMinutes else tz_minutes
+                )
+            )
         }
     }
 
